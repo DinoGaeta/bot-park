@@ -287,8 +287,14 @@ export default function SidebarLeft({
   return (
     <aside className="w-64 h-full bg-[#f6f7f8] border-r border-[#e5e7eb] flex flex-col select-none shrink-0 text-[#1f2937] font-['Plus_Jakarta_Sans',sans-serif] relative">
       {/* 1. Header identico all'originale: Lente Ricerca Universale, Logo Bot Park e Tasto + */}
-      <div className="p-3 pb-2 flex items-center justify-between">
-        <div className="flex items-center gap-1.5">
+      <div
+        className="p-3 pb-2 flex items-center justify-between"
+        style={{ WebkitAppRegion: 'drag' }}
+      >
+        <div
+          className="flex items-center gap-1.5"
+          style={{ WebkitAppRegion: 'no-drag' }}
+        >
           <button
             onClick={() => {
               sounds.play('tick');
@@ -313,6 +319,7 @@ export default function SidebarLeft({
             sounds.play('doubleTick');
             onAddBot();
           }}
+          style={{ WebkitAppRegion: 'no-drag' }}
           className="w-8 h-8 rounded-full bg-white border border-[#e5e7eb] hover:bg-gray-50 flex items-center justify-center text-gray-700 transition-colors shadow-xs cursor-pointer"
           title="Crea un Bot"
         >

@@ -1,21 +1,31 @@
-﻿@import "tailwindcss";
+@import "tailwindcss";
 
 @layer base {
   * {
     box-sizing: border-box;
   }
-  
+
   body {
     user-select: none;
+    -webkit-app-region: no-drag;
+    overflow: hidden;
+  }
+
+  .app-drag-region {
     -webkit-app-region: drag;
   }
 
-  button, input, textarea, a, .no-drag {
+  button,
+  input,
+  textarea,
+  select,
+  a,
+  .no-drag {
     -webkit-app-region: no-drag;
   }
 }
 
-/* Custom Scrollbar */
+/* Custom Scrollbar visibile su sfondo chiaro e scuro */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
@@ -24,11 +34,11 @@
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.12);
+  background: rgba(0, 0, 0, 0.16);
   border-radius: 9999px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.24);
+  background: rgba(0, 0, 0, 0.32);
 }
 
 /* Jurassic Glow Effect */
@@ -43,4 +53,3 @@
 .bot-park-badge-shadow {
   box-shadow: 0 10px 40px -10px rgba(220, 38, 38, 0.35), 0 0 25px rgba(245, 158, 11, 0.2);
 }
-
