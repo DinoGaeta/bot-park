@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+﻿import React, { useState, useEffect, useRef, useCallback } from 'react';
 import SidebarLeft from './components/SidebarLeft';
 import ChatCenter from './components/ChatCenter';
 import SidebarRight from './components/SidebarRight';
@@ -165,13 +165,15 @@ export default function App() {
 
   // Chiavi API (Gemini & ElevenLabs)
   const [geminiApiKey, setGeminiApiKey] = useState(
-    import.meta.env.VITE_GEMINI_API_KEY || ''
+    import.meta.env.VITE_GEMINI_API_KEY ||
+      ''
   );
   const [elevenLabsApiKey, setElevenLabsApiKey] = useState(
-    import.meta.env.VITE_ELEVENLABS_API_KEY || ''
+    import.meta.env.VITE_ELEVENLABS_API_KEY ||
+      ''
   );
 
-  // Memoria live letta dalla Smart TV + diario locale
+  // Memoria live letta dalla Smart TV (172.20.10.3) + memoria_gemini.txt
   const [tvLiveMemorySummary, setTvLiveMemorySummary] = useState('');
 
   // Indice messaggio in riproduzione audio
@@ -932,9 +934,33 @@ export default function App() {
         activeBotId={activeBotId}
         onSelectBot={(id) => setActiveBotId(id)}
         onAddBot={() => setShowCreateModal(true)}
-        onResetVirgin={handleResetVirgin}
-        onLoadDemo={handleLoadDemo}
-        isVirginMode={isVirginMode}
+        onOpenSearch={() => setShowCommandPalette(true)}
+        onUpdateBot={(updated) =>
+          setBots((prev) => prev.map((b) => (b.id === updated.id ? updated : b)))
+        }
+        onDeleteBot={(botIdToDelete) => {
+          setBots((prev) => prev.filter((b) => b.id !== botIdToDelete));
+          setBotMessages((prev) => {
+            const next = { ...prev };
+            delete next[botIdToDelete];
+            return next;
+          });
+          if (activeBotId === botIdToDelete) {
+            setActiveBotId('samantha');
+          }
+        }}
+        onClearBotChat={(botIdToClear) => {
+          const botObj = bots.find((b) => b.id === botIdToClear);
+          setBotMessages((prev) => ({
+            ...prev,
+            [botIdToClear]: [
+              {
+                role: 'assistant',
+                content: `Cronologia chat azzerata. Ciao Utente, sono **${botObj?.name || 'il tuo Bot'}**, pronto a ripartire!`,
+              },
+            ],
+          }));
+        }}
         botStatus={botStatus}
         onOpenSettings={handleOpenSettings}
         onOpenPairModal={() => setShowPairModal(true)}
