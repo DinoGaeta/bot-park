@@ -1,9 +1,10 @@
-﻿import { defineConfig } from 'vite';
+import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
 import { execFile, exec } from 'child_process';
 import { promisify } from 'util';
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
@@ -14,10 +15,27 @@ const execFileAsync = promisify(execFile);
 const execAsync = promisify(exec);
 
 const ADB_PATH = 'C:\\Users\\corra\\.gemini\\antigravity\\scratch\\tools\\platform-tools\\adb.exe';
-const TV_SERIAL = '192.168.1.100:5555';
+const TV_SERIAL = '172.20.10.3:5555';
 const WORKSPACES_ROOT = path.join(__dirname, 'workspaces');
 const VAULT_FILE = path.join(WORKSPACES_ROOT, '_vault.json');
+const MOBILE_SYNC_FILE = path.join(WORKSPACES_ROOT, '_mobile_sync_state.json');
 const MEMORIA_GEMINI_PATH = 'C:\\Users\\corra\\Desktop\\memoria_gemini.txt';
+
+function getLocalLanIp() {
+  const nets = os.networkInterfaces();
+  let fallback = '127.0.0.1';
+  for (const name of Object.keys(nets)) {
+    for (const net of nets[name] || []) {
+      if (net.family === 'IPv4' && !net.internal) {
+        if (net.address.startsWith('192.168.') || net.address.startsWith('172.20.') || net.address.startsWith('10.')) {
+          return net.address;
+        }
+        fallback = net.address;
+      }
+    }
+  }
+  return fallback;
+}
 
 const TV_APPS = {
   youtube: { pkg: 'com.google.android.youtube.tv', label: 'YouTube TV' },
@@ -52,26 +70,26 @@ const KEY_MAP = {
 
 const DEFAULT_BOT_FILES = {
   samantha: {
-    'piano_fiorire_insieme.md': `# Diario Condiviso â€” Samantha & Dion ("Fiorire Insieme")\n\n- **Ruolo**: Capo Bot di Bot Park & OS1 su Smart TV Salotto (192.168.1.100)\n- **Squadra Coordinata**: Steve, Giulia, Italo, Laika, Spielberg, Bastione, Sam, Piton, santilighieri, Concierge, Rex.\n- **Stato Smart TV**: Collegata in tempo reale via ADB (192.168.1.100:5555).\n`,
-    'regole_coordinamento_team.md': `# Regole Operative del Team Kitsune Labs\n\n1. Ogni agente mantiene memoria, voce e workspace indipendenti.\n2. Samantha supervisiona le prioritÃ  e il collegamento con la TV del salotto.\n3. I file generati dai bot vengono salvati direttamente nella rispettiva cartella workspace.\n`,
+    'piano_fiorire_insieme.md': `# Diario Condiviso — Samantha & Dion ("Fiorire Insieme")\n\n- **Ruolo**: Capo Bot di Bot Park & OS1 su Smart TV Salotto (172.20.10.3)\n- **Squadra Coordinata**: Steve, Giulia, Italo, Laika, Spielberg, Bastione, Sam, Piton, santilighieri, Concierge, Rex.\n- **Stato Smart TV**: Collegata in tempo reale via ADB (172.20.10.3:5555).\n`,
+    'regole_coordinamento_team.md': `# Regole Operative del Team Kitsune Labs\n\n1. Ogni agente mantiene memoria, voce e workspace indipendenti.\n2. Samantha supervisiona le priorità e il collegamento con la TV del salotto.\n3. I file generati dai bot vengono salvati direttamente nella rispettiva cartella workspace.\n`,
   },
   italo: {
-    'script_reel_ainpratica_ep01.md': `# Script Reel #01 â€” AInpratica\n\n**HOOK (0-3s):** "Tutti usano l'IA come un motore di ricerca. Ecco perchÃ© ottengono risposte mediocri."\n**SVILUPPO (3-18s):** Mostriamo la differenza tra un singolo prompt e una squadra di agenti specializzati con ruoli divisi.\n**CTA (18-25s):** "Salva il Reel e scrivici nei commenti quale agente vorresti nel tuo team."\n`,
+    'script_reel_ainpratica_ep01.md': `# Script Reel #01 — AInpratica\n\n**HOOK (0-3s):** "Tutti usano l'IA come un motore di ricerca. Ecco perché ottengono risposte mediocri."\n**SVILUPPO (3-18s):** Mostriamo la differenza tra un singolo prompt e una squadra di agenti specializzati con ruoli divisi.\n**CTA (18-25s):** "Salva il Reel e scrivici nei commenti quale agente vorresti nel tuo team."\n`,
   },
   giulia: {
-    'calendario_editoriale_ainpratica.md': `# Calendario Editoriale Instagram â€” AInpratica\n\n- **LunedÃ¬**: Carosello educativo (grafica di Laika)\n- **MercoledÃ¬**: Reel Hook + Caso Pratico (script di Italo, montaggio di Spielberg)\n- **VenerdÃ¬**: Dietro le quinte del team Kitsune Labs\n`,
+    'calendario_editoriale_ainpratica.md': `# Calendario Editoriale Instagram — AInpratica\n\n- **Lunedì**: Carosello educativo (grafica di Laika)\n- **Mercoledì**: Reel Hook + Caso Pratico (script di Italo, montaggio di Spielberg)\n- **Venerdì**: Dietro le quinte del team Kitsune Labs\n`,
   },
   laika: {
-    'sistema_visivo_ainpratica.md': `# IdentitÃ  Visiva & Palette â€” AInpratica\n\n- **Primary**: #1084FE (Grok Electric Blue)\n- **Accent**: #FF309B (Neon Magenta) & #00C972 (Emerald)\n- **Font Titoli**: Plus Jakarta Sans ExtraBold (contrasto elevato per lettura mobile)\n`,
+    'sistema_visivo_ainpratica.md': `# Identità Visiva & Palette — AInpratica\n\n- **Primary**: #1084FE (Grok Electric Blue)\n- **Accent**: #FF309B (Neon Magenta) & #00C972 (Emerald)\n- **Font Titoli**: Plus Jakarta Sans ExtraBold (contrasto elevato per lettura mobile)\n`,
   },
   spielberg: {
     'preset_montaggio_reel.md': `# Linee Guida Montaggio Short Verticali\n\n- Pattern interrupt visivo ogni 2.5 secondi.\n- Sottotitoli dinamici ad alto contrasto centrati nella safe-zone.\n- Sound design leggero (whoosh + pop organici).\n`,
   },
   steve: {
-    'roadmap_progetti_dion.md': `# Roadmap Operativa Progetti â€” Dion & Steve\n\n1. **Bot Park v2.0**: Consolidamento Samantha Capo Bot + Bridge Smart TV + Terminale e File Reali.\n2. **Samantha Mobile / Segretaria**: Valutazione fattibilitÃ  flusso chiamate in entrata.\n3. **AInpratica**: Avvio pubblicazione primi 3 contenuti con Giulia, Italo, Laika e Spielberg.\n`,
+    'roadmap_progetti_dion.md': `# Roadmap Operativa Progetti — Dion & Steve\n\n1. **Bot Park v2.0**: Consolidamento Samantha Capo Bot + Bridge Smart TV + Terminale e File Reali.\n2. **Samantha Mobile / Segretaria**: Valutazione fattibilità flusso chiamate in entrata.\n3. **AInpratica**: Avvio pubblicazione primi 3 contenuti con Giulia, Italo, Laika e Spielberg.\n`,
   },
   bastione: {
-    'hardening_rete_e_tv.md': `# Checklist Sicurezza Locale â€” Bastione\n\n- Verifica periodica porte esposte su subnet 172.20.10.0/24.\n- Controllo firma crittografica intent su JarvisSecurityFirewall (Android TV).\n`,
+    'hardening_rete_e_tv.md': `# Checklist Sicurezza Locale — Bastione\n\n- Verifica periodica porte esposte su subnet 172.20.10.0/24.\n- Controllo firma crittografica intent su JarvisSecurityFirewall (Android TV).\n`,
   },
   piton: {
     'diagnostica_sistema.py': `import platform\nimport datetime\n\nprint(f"[PITON] Sistema operativo: {platform.system()} {platform.release()}")\nprint(f"[PITON] Timestamp verifica: {datetime.datetime.now().isoformat()}")\n`,
@@ -127,7 +145,7 @@ function ensureVaultFile() {
         id: 'v4',
         type: 'credential',
         title: 'Android TV Salotto (ADB)',
-        subtitle: '192.168.1.100:5555',
+        subtitle: '172.20.10.3:5555',
         secret: 'Connessione diretta Samantha OS1',
         icon: 'key',
       },
@@ -348,9 +366,12 @@ function botParkBackendPlugin() {
 
               await runAdb(['shell', 'input keyevent 224']).catch(() => {});
               const escaped = escapeAndroidShellSingleQuotes(speakText);
+              const escapedName = escapeAndroidShellSingleQuotes(body.botName || 'Samantha');
+              const escapedColor = escapeAndroidShellSingleQuotes(body.botColor || '#FF3B9A');
+              const escapedShape = escapeAndroidShellSingleQuotes(body.botShape || 'pebble');
               await runAdb([
                 'shell',
-                `am startservice -n com.kage.jarvis/.JarvisOverlayService -a com.kage.jarvis.SPEAK --es text ${escaped}`,
+                `am startservice -n com.kage.jarvis/.JarvisOverlayService -a com.kage.jarvis.SPEAK --es text ${escaped} --es bot_name ${escapedName} --es bot_color ${escapedColor} --es bot_shape ${escapedShape}`,
               ]);
               res.setHeader('Content-Type', 'application/json');
               return res.end(JSON.stringify({ ok: true, type: 'samantha_speak', text: speakText, voiceId: targetVoiceId }));
@@ -419,7 +440,7 @@ function botParkBackendPlugin() {
                   id: e.name,
                   name: e.name,
                   size: `${kb} KB`,
-                  date: `Oggi â€¢ ${dateStr}`,
+                  date: `Oggi • ${dateStr}`,
                   mtime: stat.mtimeMs,
                 };
               })
@@ -523,7 +544,7 @@ function botParkBackendPlugin() {
                 const wData = await wRes.json();
                 const cur = wData.current || {};
                 const daily = wData.daily || {};
-                weatherSummary = `METEO LIVE TORINO: Temperatura attuale ${cur.temperature_2m}Â°C (percepita ${cur.apparent_temperature}Â°C), UmiditÃ  ${cur.relative_humidity_2m}%, Vento ${cur.wind_speed_10m} km/h. Oggi min ${daily.temperature_2m_min?.[0]}Â°C / max ${daily.temperature_2m_max?.[0]}Â°C (prob. pioggia ${daily.precipitation_probability_max?.[0]}%).`;
+                weatherSummary = `METEO LIVE TORINO: Temperatura attuale ${cur.temperature_2m}°C (percepita ${cur.apparent_temperature}°C), Umidità ${cur.relative_humidity_2m}%, Vento ${cur.wind_speed_10m} km/h. Oggi min ${daily.temperature_2m_min?.[0]}°C / max ${daily.temperature_2m_max?.[0]}°C (prob. pioggia ${daily.precipitation_probability_max?.[0]}%).`;
               }
             } catch {}
 
@@ -563,7 +584,7 @@ function botParkBackendPlugin() {
             let extractedTitle = targetUrl;
             let extractedText = '';
 
-            // Se Ã¨ un link YouTube, estraiamo prima i metadati ufficiali tramite oEmbed!
+            // Se è un link YouTube, estraiamo prima i metadati ufficiali tramite oEmbed!
             if (targetUrl.includes('youtube.com/') || targetUrl.includes('youtu.be/')) {
               try {
                 const oembedUrl = `https://www.youtube.com/oembed?url=${encodeURIComponent(targetUrl)}&format=json`;
@@ -700,6 +721,58 @@ function botParkBackendPlugin() {
             );
           }
 
+          // =========================================================================
+          // G. SINCRONIZZAZIONE MOBILE & QR CODE LAN (/api/mobile/sync & /api/network/info)
+          // =========================================================================
+          if (pathname === '/api/network/info' && req.method === 'GET') {
+            const lanIp = getLocalLanIp();
+            res.setHeader('Content-Type', 'application/json');
+            return res.end(
+              JSON.stringify({
+                ok: true,
+                lanIp,
+                port: 5173,
+                mobileUrl: `http://${lanIp}:5173`,
+              })
+            );
+          }
+
+          if (pathname === '/api/mobile/sync' && req.method === 'GET') {
+            ensureVaultFile();
+            let state = null;
+            if (fs.existsSync(MOBILE_SYNC_FILE)) {
+              try {
+                state = JSON.parse(fs.readFileSync(MOBILE_SYNC_FILE, 'utf8'));
+              } catch (_) {
+                state = null;
+              }
+            }
+            res.setHeader('Content-Type', 'application/json');
+            return res.end(
+              JSON.stringify({
+                ok: true,
+                lanIp: getLocalLanIp(),
+                state,
+              })
+            );
+          }
+
+          if (pathname === '/api/mobile/sync' && req.method === 'POST') {
+            ensureVaultFile();
+            const body = await readJsonBody(req);
+            const payload = {
+              updatedAt: Date.now(),
+              bots: body.bots || null,
+              botMessages: body.botMessages || null,
+              routines: body.routines || null,
+              geminiApiKey: body.geminiApiKey || '',
+              elevenLabsApiKey: body.elevenLabsApiKey || '',
+            };
+            fs.writeFileSync(MOBILE_SYNC_FILE, JSON.stringify(payload, null, 2), 'utf8');
+            res.setHeader('Content-Type', 'application/json');
+            return res.end(JSON.stringify({ ok: true, updatedAt: payload.updatedAt }));
+          }
+
           next();
         } catch (err) {
           res.statusCode = 500;
@@ -721,7 +794,9 @@ export default defineConfig({
   server: {
     port: 5173,
     strictPort: true,
+    watch: {
+      ignored: ['**/workspaces/**', '**/_mobile_sync_state.json', '**/_vault.json'],
+    },
   },
   base: './',
 });
-
