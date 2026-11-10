@@ -6,6 +6,25 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+// Cartella cache dedicata in AppData\Local\BotParkData + Single Instance Lock (zero conflitti cache GPU!)
+const userDataDir = path.join(process.env.LOCALAPPDATA || app.getPath('appData'), 'BotParkData');
+app.setPath('userData', userDataDir);
+app.commandLine.appendSwitch('disk-cache-dir', path.join(userDataDir, 'Cache'));
+app.commandLine.appendSwitch('disable-gpu-shader-disk-cache');
+
+const gotTheLock = app.requestSingleInstanceLock();
+if (!gotTheLock) {
+  app.quit();
+} else {
+  app.on('second-instance', () => {
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.show();
+      mainWindow.focus();
+    }
+  });
+}
+
 let mainWindow = null;
 let tray = null;
 
