@@ -20,6 +20,7 @@ import {
   Check,
   Send,
   ChevronRight,
+  ChevronLeft,
   Minus,
   Square as MaximizeIcon,
 } from 'lucide-react';
@@ -53,6 +54,8 @@ export default function ChatCenter({
   onMinimize,
   onMaximize,
   onCloseWindow,
+  isMobile = false,
+  onMobileBack,
 }) {
   const messagesEndRef = useRef(null);
   const fileInputRef = useRef(null);
@@ -96,8 +99,24 @@ export default function ChatCenter({
         className="h-12 flex items-center justify-between px-4 shrink-0 bg-white/95 backdrop-blur-md z-20"
         style={{ WebkitAppRegion: 'drag' }}
       >
-        {/* Spazio sinistro per bilanciare il centraggio perfetto della Pill */}
-        <div className="w-36" />
+        {/* Spazio sinistro per bilanciare il centraggio perfetto della Pill (o tasto Indietro su Mobile) */}
+        <div
+          className={`${isMobile ? 'w-20' : 'w-36'} flex items-center`}
+          style={{ WebkitAppRegion: 'no-drag' }}
+        >
+          {isMobile && (
+            <button
+              onClick={() => {
+                sounds.play('tick');
+                onMobileBack && onMobileBack();
+              }}
+              className="flex items-center gap-0.5 px-2.5 py-1.5 rounded-full bg-[#f3f4f6] hover:bg-[#e5e7eb] text-gray-800 text-xs font-semibold cursor-pointer"
+            >
+              <ChevronLeft size={15} />
+              <span>Bot</span>
+            </button>
+          )}
+        </div>
 
         {/* Pill Centrale Cliccabile con Avatar + Nome Bot + ">" (Image 4: apre/chiude la Sidebar Destra!) */}
         <button
@@ -123,7 +142,7 @@ export default function ChatCenter({
 
         {/* Destra: Tasto "Condividi" + i 3 pulsanti Finestra (visibili qui quando la Sidebar Destra è chiusa, come in Image 1) */}
         <div
-          className="flex items-center justify-end gap-2 w-36"
+          className={`flex items-center justify-end gap-2 ${isMobile ? 'w-20' : 'w-36'}`}
           style={{ WebkitAppRegion: 'no-drag' }}
         >
           <button
@@ -140,7 +159,7 @@ export default function ChatCenter({
             Condividi
           </button>
 
-          {!isRightSidebarOpen && (
+          {!isRightSidebarOpen && !isMobile && (
             <div className="flex items-center gap-1 ml-1">
               <button
                 onClick={onMinimize}

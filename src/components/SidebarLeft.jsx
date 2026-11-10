@@ -1,4 +1,4 @@
-﻿import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   Search,
   Plus,
@@ -35,6 +35,7 @@ export default function SidebarLeft({
   botStatus,
   onOpenSettings,
   onOpenPairModal,
+  isMobile = false,
 }) {
   const [showProfileMenu, setShowProfileMenu] = useState(false);
   const [showPremiumFlyout, setShowPremiumFlyout] = useState(false);
@@ -64,13 +65,13 @@ export default function SidebarLeft({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // Samantha Ã¨ la Capo Bot / Agente Principale in cima
+  // Samantha è la Capo Bot / Agente Principale in cima
   const mainBot =
     bots.find((b) => b.isMain || b.id === 'samantha' || b.id === 'ciccio') ||
     bots[0] || {
       id: 'samantha',
       name: 'Samantha',
-      subtitle: 'Capo Bot â€¢ OS1',
+      subtitle: 'Capo Bot • OS1',
       color: '#FF3B9A',
       avatarShape: 'pebble',
     };
@@ -285,7 +286,11 @@ export default function SidebarLeft({
   };
 
   return (
-    <aside className="w-64 h-full bg-[#f6f7f8] border-r border-[#e5e7eb] flex flex-col select-none shrink-0 text-[#1f2937] font-['Plus_Jakarta_Sans',sans-serif] relative">
+    <aside
+      className={`${
+        isMobile ? 'w-full' : 'w-64'
+      } h-full bg-[#f6f7f8] border-r border-[#e5e7eb] flex flex-col select-none shrink-0 text-[#1f2937] font-['Plus_Jakarta_Sans',sans-serif] relative`}
+    >
       {/* 1. Header identico all'originale: Lente Ricerca Universale, Logo Bot Park e Tasto + */}
       <div
         className="p-3 pb-2 flex items-center justify-between"
@@ -309,7 +314,7 @@ export default function SidebarLeft({
             src="./bot_park_icon.png"
             alt="Bot Park"
             className="h-8 w-auto object-contain drop-shadow-xs select-none"
-            title="Bot Park â€” Jurassic AI Agent"
+            title="Bot Park — Jurassic AI Agent"
           />
         </div>
 
@@ -327,7 +332,7 @@ export default function SidebarLeft({
         </button>
       </div>
 
-      {/* 2. SAMANTHA â€” CAPO BOT & AGENTE PRINCIPALE (In cima, protetta da eliminazione) */}
+      {/* 2. SAMANTHA — CAPO BOT & AGENTE PRINCIPALE (In cima, protetta da eliminazione) */}
       <div className="px-3 py-2 border-b border-[#e5e7eb]/70">
         <button
           onClick={() => {
@@ -337,7 +342,7 @@ export default function SidebarLeft({
           className={`w-full flex flex-col items-center justify-center py-2.5 px-2 rounded-2xl transition-all cursor-pointer ${
             isMainBotActive ? 'bg-[#e5e7eb] shadow-xs' : 'hover:bg-white/70'
           }`}
-          title="Samantha â€” Capo Bot per coordinare la squadra e controllare la Smart TV"
+          title="Samantha — Capo Bot per coordinare la squadra e controllare la Smart TV"
         >
           <div className="relative">
             <BotAvatar
@@ -346,14 +351,14 @@ export default function SidebarLeft({
               status={isMainBotActive ? botStatus : 'idle'}
             />
             <span className="absolute -bottom-1 -right-1 w-5 h-5 rounded-full bg-amber-400 text-black text-[10px] font-black flex items-center justify-center shadow border border-white">
-              â˜…
+              ★
             </span>
           </div>
           <span className="text-xs font-bold text-gray-900 mt-1.5">
             {mainBot.name}
           </span>
           <span className="text-[10px] text-pink-600 font-semibold">
-            Capo Bot â€¢ OS1 & TV
+            Capo Bot • OS1 & TV
           </span>
         </button>
       </div>
@@ -405,7 +410,7 @@ export default function SidebarLeft({
         )}
       </div>
 
-      {/* 4. Footer con Brand Bot Park Team */}
+      {/* 4. Footer con Brand Kitsune Labs */}
       <div
         ref={popoverRef}
         className="p-3 border-t border-[#e5e7eb] bg-[#f6f7f8] flex items-center justify-between relative"
@@ -423,7 +428,7 @@ export default function SidebarLeft({
             className="w-7 h-7 object-contain drop-shadow-2xs"
           />
           <span className="text-xs font-semibold text-gray-700 hover:text-black">
-            Bot Park Team
+            kitsune Labs
           </span>
         </button>
 
@@ -501,7 +506,7 @@ export default function SidebarLeft({
             <button
               onClick={() => {
                 sounds.play('tick');
-                alert('Supporto Bot Park: contatta Bot Park Team a support@botpark.local');
+                alert('Supporto Bot Park: contatta kitsune Labs a corradogaeta123@gmail.com');
               }}
               className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl hover:bg-gray-100 transition-colors text-left"
             >
@@ -561,12 +566,12 @@ export default function SidebarLeft({
             <div className="flex items-center gap-3">
               <BotAvatar bot={confirmDeleteBot} size="small" />
               <h3 className="text-base font-bold text-gray-900">
-                Elimina Â«{confirmDeleteBot.name}Â»?
+                Elimina «{confirmDeleteBot.name}»?
               </h3>
             </div>
             <p className="text-xs text-gray-600 leading-relaxed">
               Il Bot e la sua cronologia della chat verranno eliminati definitivamente. Questa
-              azione non puÃ² essere annullata.
+              azione non può essere annullata.
             </p>
             <div className="flex items-center justify-end gap-2 pt-2">
               <button
@@ -596,4 +601,3 @@ export default function SidebarLeft({
     </aside>
   );
 }
-

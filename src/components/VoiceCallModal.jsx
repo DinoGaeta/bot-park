@@ -310,6 +310,8 @@ export default function VoiceCallModal({
               text: cleanSpokenReply,
               voiceId,
               botName: currentBot?.name || 'Samantha',
+              botColor: currentBot?.color || '#0B0B0D',
+              botShape: currentBot?.avatarShape || 'pebble',
             }),
           }).catch(() => {});
 

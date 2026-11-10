@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import SidebarLeft from './components/SidebarLeft';
 import ChatCenter from './components/ChatCenter';
 import SidebarRight from './components/SidebarRight';
@@ -150,6 +150,16 @@ export default function App() {
   const [showCommandPalette, setShowCommandPalette] = useState(false);
   const [isRightSidebarOpen, setIsRightSidebarOpen] = useState(true);
   const [settingsInitialTab, setSettingsInitialTab] = useState('generali');
+  const [isMobileView, setIsMobileView] = useState(
+    () => typeof window !== 'undefined' && window.innerWidth < 768
+  );
+  const [mobileScreen, setMobileScreen] = useState('list'); // 'list' | 'chat' | 'details'
+
+  useEffect(() => {
+    const onResize = () => setIsMobileView(window.innerWidth < 768);
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
 
   // Helper universali per i 3 pulsanti finestra (Minimizza, Ingrandisci, Chiudi) sia in Electron che nel Browser
   const handleWindowMinimize = () => {
@@ -251,10 +261,49 @@ export default function App() {
         }
       } catch (_) {}
 
+      // Se l'app viene aperta su iPhone/Android via Wi-Fi LAN, carica lo stato sincronizzato dal PC
+      if (window.innerWidth < 768 || window.location.search.includes('mobile=1')) {
+        try {
+          const syncRes = await fetch('/api/mobile/sync');
+          const syncData = await syncRes.json();
+          if (syncData?.ok && syncData.state) {
+            if (Array.isArray(syncData.state.bots) && syncData.state.bots.length > 0) {
+              setBots(syncData.state.bots);
+            }
+            if (syncData.state.botMessages && typeof syncData.state.botMessages === 'object') {
+              setBotMessages(syncData.state.botMessages);
+            }
+            if (Array.isArray(syncData.state.routines) && syncData.state.routines.length > 0) {
+              setRoutines(syncData.state.routines);
+            }
+            if (syncData.state.geminiApiKey) setGeminiApiKey(syncData.state.geminiApiKey);
+            if (syncData.state.elevenLabsApiKey) setElevenLabsApiKey(syncData.state.elevenLabsApiKey);
+          }
+        } catch (_) {}
+      }
+
       sounds.play('open');
     }
     initApp();
   }, []);
+
+  // Sincronizza automaticamente in background lo stato con il bridge Mobile LAN (/api/mobile/sync)
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      fetch('/api/mobile/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          bots,
+          botMessages,
+          routines,
+          geminiApiKey,
+          elevenLabsApiKey,
+        }),
+      }).catch(() => {});
+    }, 900);
+    return () => clearTimeout(timer);
+  }, [bots, botMessages, routines, geminiApiKey, elevenLabsApiKey]);
 
   // Esegue tag <<<CREATE_BOT>>>, <<<TV_COMMAND>>>, <<<SEND_TO_BOT>>>, <<<WRITE_FILE>>> e <<<REMEMBER>>>
   const executeBotSideEffects = useCallback(
@@ -836,6 +885,9 @@ export default function App() {
               type: 'samantha_speak',
               text: reply.slice(0, 260),
               voiceId: targetBotObj?.voiceId || 'CiwzbDpaN3pQXjTgx3ML',
+              botName: targetBotObj?.name || 'Samantha',
+              botColor: targetBotObj?.color || '#0B0B0D',
+              botShape: targetBotObj?.avatarShape || 'pebble',
             }),
           });
         } catch (_) {}
@@ -960,74 +1012,93 @@ export default function App() {
   return (
     <div className="w-screen h-screen flex bg-white overflow-hidden font-['Plus_Jakarta_Sans',sans-serif]">
       {/* 1. Sidebar Sinistra (Samantha Capo Bot in cima + Teammates Indipendenti) */}
-      <SidebarLeft
-        bots={bots}
-        activeBotId={activeBotId}
-        onSelectBot={(id) => setActiveBotId(id)}
-        onAddBot={() => setShowCreateModal(true)}
-        onOpenSearch={() => setShowCommandPalette(true)}
-        onUpdateBot={(updated) =>
-          setBots((prev) => prev.map((b) => (b.id === updated.id ? updated : b)))
-        }
-        onDeleteBot={(botIdToDelete) => {
-          setBots((prev) => prev.filter((b) => b.id !== botIdToDelete));
-          setBotMessages((prev) => {
-            const next = { ...prev };
-            delete next[botIdToDelete];
-            return next;
-          });
-          if (activeBotId === botIdToDelete) {
-            setActiveBotId('samantha');
+      {(!isMobileView || mobileScreen === 'list') && (
+        <SidebarLeft
+          bots={bots}
+          activeBotId={activeBotId}
+          onSelectBot={(id) => {
+            setActiveBotId(id);
+            if (isMobileView) setMobileScreen('chat');
+          }}
+          onAddBot={() => setShowCreateModal(true)}
+          onOpenSearch={() => setShowCommandPalette(true)}
+          onUpdateBot={(updated) =>
+            setBots((prev) => prev.map((b) => (b.id === updated.id ? updated : b)))
           }
-        }}
-        onClearBotChat={(botIdToClear) => {
-          const botObj = bots.find((b) => b.id === botIdToClear);
-          setBotMessages((prev) => ({
-            ...prev,
-            [botIdToClear]: [
-              {
-                role: 'assistant',
-                content: `Cronologia chat azzerata. Ciao Utente, sono **${botObj?.name || 'il tuo Bot'}**, pronto a ripartire!`,
-              },
-            ],
-          }));
-        }}
-        botStatus={botStatus}
-        onOpenSettings={handleOpenSettings}
-        onOpenPairModal={() => setShowPairModal(true)}
-      />
+          onDeleteBot={(botIdToDelete) => {
+            setBots((prev) => prev.filter((b) => b.id !== botIdToDelete));
+            setBotMessages((prev) => {
+              const next = { ...prev };
+              delete next[botIdToDelete];
+              return next;
+            });
+            if (activeBotId === botIdToDelete) {
+              setActiveBotId('samantha');
+            }
+          }}
+          onClearBotChat={(botIdToClear) => {
+            const botObj = bots.find((b) => b.id === botIdToClear);
+            setBotMessages((prev) => ({
+              ...prev,
+              [botIdToClear]: [
+                {
+                  role: 'assistant',
+                  content: `Cronologia chat azzerata. Ciao Utente, sono **${botObj?.name || 'il tuo Bot'}**, pronto a ripartire!`,
+                },
+              ],
+            }));
+          }}
+          botStatus={botStatus}
+          onOpenSettings={handleOpenSettings}
+          onOpenPairModal={() => setShowPairModal(true)}
+          isMobile={isMobileView}
+        />
+      )}
 
       {/* 2. Centro Chat (con colore dinamico dell'Agente, Pill cliccabile, @menzioni, Canvas a schermo intero e allegati multi-formato) */}
-      <ChatCenter
-        activeBot={activeBot}
-        bots={bots}
-        messages={activeMessages}
-        inputValue={inputValue}
-        onChangeInput={(e) => setInputValue(e.target.value)}
-        onSendMessage={() => handleSendMessage()}
-        isStreaming={isStreaming}
-        isListening={isListening}
-        onToggleListening={handleToggleListening}
-        onStartVoiceCall={() => setShowVoiceCallModal(true)}
-        attachedImages={attachedImages}
-        attachedDocs={attachedDocs}
-        onAttachImage={handleAttachImage}
-        onRemoveAttachment={handleRemoveAttachment}
-        onCapturePcScreen={handleCapturePcScreen}
-        onOpenSearch={() => setShowCommandPalette(true)}
-        onSpeakMessage={handleSpeakMessage}
-        onSelectOption={(opt) => handleSendMessage(opt)}
-        onSelectBot={(id) => setActiveBotId(id)}
-        speakingMessageIndex={speakingMessageIndex}
-        isRightSidebarOpen={isRightSidebarOpen}
-        onToggleRightSidebar={() => setIsRightSidebarOpen((v) => !v)}
-        onMinimize={handleWindowMinimize}
-        onMaximize={handleWindowMaximize}
-        onCloseWindow={handleWindowClose}
-      />
+      {(!isMobileView || mobileScreen === 'chat') && (
+        <ChatCenter
+          activeBot={activeBot}
+          bots={bots}
+          messages={activeMessages}
+          inputValue={inputValue}
+          onChangeInput={(e) => setInputValue(e.target.value)}
+          onSendMessage={() => handleSendMessage()}
+          isStreaming={isStreaming}
+          isListening={isListening}
+          onToggleListening={handleToggleListening}
+          onStartVoiceCall={() => setShowVoiceCallModal(true)}
+          attachedImages={attachedImages}
+          attachedDocs={attachedDocs}
+          onAttachImage={handleAttachImage}
+          onRemoveAttachment={handleRemoveAttachment}
+          onCapturePcScreen={handleCapturePcScreen}
+          onOpenSearch={() => setShowCommandPalette(true)}
+          onSpeakMessage={handleSpeakMessage}
+          onSelectOption={(opt) => handleSendMessage(opt)}
+          onSelectBot={(id) => {
+            setActiveBotId(id);
+            if (isMobileView) setMobileScreen('chat');
+          }}
+          speakingMessageIndex={speakingMessageIndex}
+          isRightSidebarOpen={isMobileView ? mobileScreen === 'details' : isRightSidebarOpen}
+          onToggleRightSidebar={() => {
+            if (isMobileView) {
+              setMobileScreen((s) => (s === 'details' ? 'chat' : 'details'));
+            } else {
+              setIsRightSidebarOpen((v) => !v);
+            }
+          }}
+          onMinimize={handleWindowMinimize}
+          onMaximize={handleWindowMaximize}
+          onCloseWindow={handleWindowClose}
+          isMobile={isMobileView}
+          onMobileBack={() => setMobileScreen('list')}
+        />
+      )}
 
       {/* 3. Sidebar Destra a scomparsa (aperta dalla Pill centrale con Nome Bot >, chiusa dal cerchio ( X ) "Chiudi") */}
-      {isRightSidebarOpen && (
+      {(isMobileView ? mobileScreen === 'details' : isRightSidebarOpen) && (
         <SidebarRight
           activeBot={activeBot}
           onUpdateBot={(updated) =>
@@ -1038,12 +1109,22 @@ export default function App() {
           onOpenFileInEditor={handleOpenFileInEditor}
           onCreateRoutine={() => setShowRoutineModal(true)}
           onOpenTeachModal={() => setShowTeachModal(true)}
-          onRunTaskInChat={(taskText) => handleSendMessage(taskText)}
+          onRunTaskInChat={(taskText) => {
+            if (isMobileView) setMobileScreen('chat');
+            handleSendMessage(taskText);
+          }}
           elevenLabsApiKey={elevenLabsApiKey}
-          onCloseSidebarRight={() => setIsRightSidebarOpen(false)}
+          onCloseSidebarRight={() => {
+            if (isMobileView) {
+              setMobileScreen('chat');
+            } else {
+              setIsRightSidebarOpen(false);
+            }
+          }}
           onMinimize={handleWindowMinimize}
           onMaximize={handleWindowMaximize}
           onCloseWindow={handleWindowClose}
+          isMobile={isMobileView}
         />
       )}
 
