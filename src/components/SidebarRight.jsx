@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Minus,
   Square as MaximizeIcon,
@@ -10,6 +10,13 @@ import {
   FileText,
   Sparkles,
   Check,
+  Video,
+  CheckSquare,
+  Plus,
+  Trash2,
+  Play,
+  Brain,
+  BookOpen,
 } from 'lucide-react';
 import BotAvatar from './BotAvatar';
 import { sounds } from '../services/soundEffects';
@@ -23,6 +30,8 @@ export default function SidebarRight({
   onOpenComputer,
   onOpenFileInEditor,
   onCreateRoutine,
+  onOpenTeachModal,
+  onRunTaskInChat,
   elevenLabsApiKey,
   onMinimize,
   onMaximize,
@@ -32,6 +41,10 @@ export default function SidebarRight({
   const [hideSuggestions, setHideSuggestions] = useState(false);
   const [isPlayingSample, setIsPlayingSample] = useState(false);
   const [savedBadge, setSavedBadge] = useState(false);
+  const [newTaskText, setNewTaskText] = useState('');
+  const [newMemoryText, setNewMemoryText] = useState('');
+
+  const botColor = activeBot?.color || '#00C972';
 
   const isComputerActive =
     activeBot?.computerStatus === 'Attivo' ||
@@ -52,7 +65,7 @@ export default function SidebarRight({
     setIsPlayingSample(true);
 
     const voiceId = activeBot?.voiceId || 'CiwzbDpaN3pQXjTgx3ML';
-    const sampleText = `Ciao! Sono ${activeBot?.name || 'capo-bot'}. Questa è la mia voce indipendente in Bot Park.`;
+    const sampleText = `Ciao Dion! Sono ${activeBot?.name || 'Samantha'}. Questa è la mia voce indipendente in Bot Park.`;
 
     await speakTextWithElevenLabs({
       text: sampleText,
@@ -81,6 +94,57 @@ export default function SidebarRight({
   }, [activeBot?.id, activeTab]);
 
   const libraryFiles = diskFiles.length > 0 ? diskFiles : activeBot?.libraryFiles || [];
+  const botTasks = activeBot?.tasks || [];
+  const botMemories = activeBot?.memories || [];
+  const botSkills = activeBot?.skills || [];
+
+  const handleAddTask = (e) => {
+    e.preventDefault();
+    if (!newTaskText.trim()) return;
+    sounds.play('tick');
+    const updatedTasks = [
+      { id: `t_${Date.now()}`, text: newTaskText.trim(), done: false },
+      ...botTasks,
+    ];
+    onUpdateBot({ ...activeBot, tasks: updatedTasks });
+    setNewTaskText('');
+  };
+
+  const handleToggleTask = (taskId) => {
+    sounds.play('tick');
+    const updatedTasks = botTasks.map((t) =>
+      t.id === taskId ? { ...t, done: !t.done } : t
+    );
+    onUpdateBot({ ...activeBot, tasks: updatedTasks });
+  };
+
+  const handleDeleteTask = (taskId) => {
+    sounds.play('tick');
+    const updatedTasks = botTasks.filter((t) => t.id !== taskId);
+    onUpdateBot({ ...activeBot, tasks: updatedTasks });
+  };
+
+  const handleAddMemory = (e) => {
+    e.preventDefault();
+    if (!newMemoryText.trim()) return;
+    sounds.play('tick');
+    const updatedMemories = [
+      {
+        id: `mem_${Date.now()}`,
+        text: newMemoryText.trim(),
+        date: new Date().toLocaleDateString('it-IT'),
+      },
+      ...botMemories,
+    ];
+    onUpdateBot({ ...activeBot, memories: updatedMemories });
+    setNewMemoryText('');
+  };
+
+  const handleDeleteMemory = (memId) => {
+    sounds.play('tick');
+    const updatedMemories = botMemories.filter((m) => m.id !== memId);
+    onUpdateBot({ ...activeBot, memories: updatedMemories });
+  };
 
   return (
     <aside className="w-72 h-full bg-[#fbfcfc] border-l border-[#e5e7eb] flex flex-col select-none shrink-0 text-[#1f2937] font-['Plus_Jakarta_Sans',sans-serif]">
@@ -88,21 +152,21 @@ export default function SidebarRight({
       <div className="h-10 flex items-center justify-end px-3 gap-1 shrink-0">
         <button
           onClick={onMinimize}
-          className="p-1 rounded hover:bg-gray-200/80 text-gray-400 hover:text-gray-700 transition-colors"
+          className="p-1 rounded hover:bg-gray-200/80 text-gray-400 hover:text-gray-700 transition-colors cursor-pointer"
           title="Riduci a icona"
         >
           <Minus size={13} />
         </button>
         <button
           onClick={onMaximize}
-          className="p-1 rounded hover:bg-gray-200/80 text-gray-400 hover:text-gray-700 transition-colors"
+          className="p-1 rounded hover:bg-gray-200/80 text-gray-400 hover:text-gray-700 transition-colors cursor-pointer"
           title="Ingrandisci"
         >
           <MaximizeIcon size={11} />
         </button>
         <button
           onClick={onClose}
-          className="p-1 rounded hover:bg-red-50 text-gray-400 hover:text-red-500 transition-colors"
+          className="p-1 rounded hover:bg-red-50 text-gray-400 hover:text-red-500 transition-colors cursor-pointer"
           title="Chiudi"
         >
           <X size={14} />
@@ -134,9 +198,12 @@ export default function SidebarRight({
             }}
             className={`pb-1 transition-colors border-b-2 cursor-pointer ${
               activeTab === 'attivita'
-                ? 'border-gray-900 text-gray-900'
+                ? 'text-gray-900'
                 : 'border-transparent text-gray-400 hover:text-gray-700'
             }`}
+            style={{
+              borderColor: activeTab === 'attivita' ? botColor : 'transparent',
+            }}
           >
             Attività
           </button>
@@ -147,9 +214,12 @@ export default function SidebarRight({
             }}
             className={`pb-1 transition-colors border-b-2 cursor-pointer ${
               activeTab === 'identita'
-                ? 'border-gray-900 text-gray-900'
+                ? 'text-gray-900'
                 : 'border-transparent text-gray-400 hover:text-gray-700'
             }`}
+            style={{
+              borderColor: activeTab === 'identita' ? botColor : 'transparent',
+            }}
           >
             Identità
           </button>
@@ -160,9 +230,12 @@ export default function SidebarRight({
             }}
             className={`pb-1 transition-colors border-b-2 cursor-pointer ${
               activeTab === 'libreria'
-                ? 'border-gray-900 text-gray-900'
+                ? 'text-gray-900'
                 : 'border-transparent text-gray-400 hover:text-gray-700'
             }`}
+            style={{
+              borderColor: activeTab === 'libreria' ? botColor : 'transparent',
+            }}
           >
             Libreria
           </button>
@@ -173,7 +246,7 @@ export default function SidebarRight({
       <div className="flex-1 overflow-y-auto p-4 space-y-5 text-xs">
         {activeTab === 'attivita' ? (
           <>
-            {/* Sezione Suggerimenti (senza pulsante Slack!) */}
+            {/* Sezione Suggerimenti (Crea una routine + Insegna un'attività) */}
             <div>
               <div className="flex items-center justify-between text-gray-500 mb-2 font-medium">
                 <span>Suggerimenti</span>
@@ -195,11 +268,99 @@ export default function SidebarRight({
                     className="w-full flex items-center justify-between p-2.5 rounded-xl bg-white border border-[#e5e7eb] hover:bg-gray-50 transition-colors text-left cursor-pointer"
                   >
                     <div className="flex items-center gap-2">
-                      <Clock size={15} className="text-gray-500" />
+                      <Clock size={15} style={{ color: botColor }} />
                       <span className="text-gray-800 font-medium">Crea una routine</span>
                     </div>
                     <ChevronRight size={13} className="text-gray-400" />
                   </button>
+
+                  {/* Feature #1 dallo scraping Grok Bot: Insegna un'attività (Teach Mode / Screen Record) */}
+                  <button
+                    onClick={() => {
+                      sounds.play('tick');
+                      onOpenTeachModal && onOpenTeachModal();
+                    }}
+                    className="w-full flex items-center justify-between p-2.5 rounded-xl bg-white border border-[#e5e7eb] hover:bg-gray-50 transition-colors text-left cursor-pointer"
+                  >
+                    <div className="flex items-center gap-2">
+                      <Video size={15} style={{ color: botColor }} />
+                      <span className="text-gray-800 font-medium">Insegna un'attività</span>
+                    </div>
+                    <ChevronRight size={13} className="text-gray-400" />
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* Feature #6 dallo scraping Grok Bot: Promemoria & Task Interattivi */}
+            <div className="space-y-2">
+              <div className="text-gray-500 font-medium flex items-center justify-between">
+                <span>Promemoria & Task</span>
+                <span className="text-[10px] text-gray-400">
+                  {botTasks.filter((t) => !t.done).length} attivi
+                </span>
+              </div>
+
+              <form onSubmit={handleAddTask} className="flex gap-1.5">
+                <input
+                  type="text"
+                  value={newTaskText}
+                  onChange={(e) => setNewTaskText(e.target.value)}
+                  placeholder={`Nuovo task per ${activeBot?.name}...`}
+                  className="flex-1 bg-white border border-gray-200 rounded-xl px-2.5 py-1.5 text-[11px] text-gray-800 focus:outline-none focus:border-gray-400"
+                />
+                <button
+                  type="submit"
+                  className="px-2.5 py-1.5 rounded-xl text-white font-bold flex items-center justify-center cursor-pointer"
+                  style={{ backgroundColor: botColor }}
+                  title="Aggiungi promemoria/task"
+                >
+                  <Plus size={13} />
+                </button>
+              </form>
+
+              {botTasks.length > 0 && (
+                <div className="space-y-1 max-h-36 overflow-y-auto">
+                  {botTasks.map((t) => (
+                    <div
+                      key={t.id}
+                      className="flex items-center justify-between gap-2 p-2 rounded-xl bg-white border border-gray-200/80 text-[11px]"
+                    >
+                      <label className="flex items-center gap-2 flex-1 min-w-0 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={t.done}
+                          onChange={() => handleToggleTask(t.id)}
+                          className="rounded cursor-pointer"
+                        />
+                        <span
+                          className={`truncate ${
+                            t.done ? 'line-through text-gray-400' : 'text-gray-800 font-medium'
+                          }`}
+                        >
+                          {t.text}
+                        </span>
+                      </label>
+                      <div className="flex items-center gap-1 shrink-0">
+                        {!t.done && onRunTaskInChat && (
+                          <button
+                            onClick={() => onRunTaskInChat(t.text)}
+                            className="p-1 rounded hover:bg-gray-100 text-gray-500 hover:text-gray-900 cursor-pointer"
+                            title="Fai svolgere subito questo task al Bot"
+                          >
+                            <Play size={11} style={{ color: botColor }} />
+                          </button>
+                        )}
+                        <button
+                          onClick={() => handleDeleteTask(t.id)}
+                          className="p-1 rounded hover:bg-red-50 text-gray-400 hover:text-red-500 cursor-pointer"
+                          title="Elimina task"
+                        >
+                          <Trash2 size={11} />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
                 </div>
               )}
             </div>
@@ -210,7 +371,8 @@ export default function SidebarRight({
                 <span>Computer & Smart TV</span>
                 <button
                   onClick={() => onOpenComputer && onOpenComputer('tv')}
-                  className="text-[10px] text-emerald-600 font-bold hover:underline cursor-pointer"
+                  className="text-[10px] font-bold hover:underline cursor-pointer"
+                  style={{ color: botColor }}
                 >
                   Apri Schermo ↗
                 </button>
@@ -250,7 +412,7 @@ export default function SidebarRight({
                 </button>
               </div>
 
-              {/* Card dedicata Controllo Diretto Smart TV Android (Android TV) */}
+              {/* Card dedicata Controllo Diretto Smart TV Android (172.20.10.3) */}
               <div
                 onClick={() => onOpenComputer && onOpenComputer('tv')}
                 className="p-3 rounded-2xl bg-gradient-to-r from-pink-50/80 to-white border border-pink-200/80 flex items-center justify-between shadow-xs hover:border-pink-400 transition-all cursor-pointer"
@@ -261,21 +423,22 @@ export default function SidebarRight({
                   </div>
                   <div className="text-[10.5px] text-pink-600 font-medium flex items-center gap-1 mt-0.5">
                     <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping" />
-                    <span>Android TV • Telecomando & Live</span>
+                    <span>172.20.10.3 • Telecomando & Live</span>
                   </div>
                 </div>
                 <ChevronRight size={15} className="text-pink-500" />
               </div>
             </div>
 
-            {/* Sezione Chat Vocale (Integrata con ElevenLabs & Capo Bot) */}
+            {/* Sezione Chat Vocale (Integrata con ElevenLabs & colore dell'Agente) */}
             <div>
               <div className="flex items-center justify-between text-gray-500 mb-2 font-medium">
                 <span>Chat vocale</span>
                 <button
                   onClick={handleTestVoice}
                   disabled={isPlayingSample}
-                  className="text-[10px] font-bold text-emerald-600 hover:text-emerald-700 flex items-center gap-1 cursor-pointer"
+                  className="text-[10px] font-bold flex items-center gap-1 cursor-pointer"
+                  style={{ color: botColor }}
                 >
                   <Volume2 size={12} className={isPlayingSample ? 'animate-bounce' : ''} />
                   <span>{isPlayingSample ? 'Parla...' : 'Ascolta'}</span>
@@ -283,7 +446,6 @@ export default function SidebarRight({
               </div>
 
               <div className="space-y-3 bg-white p-3 rounded-2xl border border-[#e5e7eb]">
-                {/* Voce ElevenLabs Indipendente per l'Agente */}
                 <div className="space-y-1">
                   <span className="text-gray-500 text-[11px] block">Voce Agente (ElevenLabs)</span>
                   <select
@@ -294,10 +456,10 @@ export default function SidebarRight({
                         voiceId: e.target.value,
                         voice:
                           ELEVEN_LABS_VOICES.find((v) => v.id === e.target.value)?.name ||
-                          'capo-bot',
+                          'Samantha',
                       })
                     }
-                    className="w-full bg-gray-50 border border-gray-200 rounded-xl px-2.5 py-1.5 text-xs font-semibold text-gray-800 focus:outline-none focus:border-green-600"
+                    className="w-full bg-gray-50 border border-gray-200 rounded-xl px-2.5 py-1.5 text-xs font-semibold text-gray-800 focus:outline-none"
                   >
                     {ELEVEN_LABS_VOICES.map((v) => (
                       <option key={v.id} value={v.id}>
@@ -307,7 +469,6 @@ export default function SidebarRight({
                   </select>
                 </div>
 
-                {/* Velocità */}
                 <div className="flex items-center justify-between">
                   <span className="text-gray-600">Velocità</span>
                   <select
@@ -325,7 +486,6 @@ export default function SidebarRight({
                   </select>
                 </div>
 
-                {/* Lingua */}
                 <div className="flex items-center justify-between">
                   <span className="text-gray-600">Lingua</span>
                   <select
@@ -340,13 +500,14 @@ export default function SidebarRight({
                   </select>
                 </div>
 
-                {/* Pulsante Chiamata Vocale Live con Gemini + ElevenLabs */}
+                {/* Pulsante Chiamata Vocale Live col colore dell'Agente attivo! */}
                 <button
                   onClick={() => {
                     sounds.play('open');
                     onStartVoiceCall && onStartVoiceCall();
                   }}
-                  className="w-full mt-2 py-2 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs flex items-center justify-center gap-1.5 shadow-xs transition-all cursor-pointer"
+                  className="w-full mt-2 py-2 px-3 rounded-xl text-white font-semibold text-xs flex items-center justify-center gap-1.5 shadow-xs transition-all hover:opacity-95 cursor-pointer"
+                  style={{ backgroundColor: botColor }}
                 >
                   <Volume2 size={13} />
                   <span>Avvia Chiamata Vocale Live</span>
@@ -355,12 +516,19 @@ export default function SidebarRight({
             </div>
           </>
         ) : activeTab === 'identita' ? (
-          /* Scheda Identità Indipendente dell'Agente (Ruolo, Istruzioni, Forma e Colore) */
+          /* Scheda Identità Indipendente + Memorie & Skill dell'Agente (Feature #2) */
           <div className="space-y-4">
-            <div className="p-2.5 rounded-xl bg-emerald-50/70 border border-emerald-200 text-[11px] text-emerald-800 flex items-center gap-2">
-              <Sparkles size={14} className="text-emerald-600 shrink-0" />
+            <div
+              className="p-2.5 rounded-xl border text-[11px] flex items-center gap-2"
+              style={{
+                backgroundColor: `${botColor}12`,
+                borderColor: `${botColor}40`,
+                color: '#1f2937',
+              }}
+            >
+              <Sparkles size={14} style={{ color: botColor }} className="shrink-0" />
               <span>
-                <strong>{activeBot?.name}</strong> ha memoria, personalità e voce indipendenti dagli altri bot.
+                <strong>{activeBot?.name}</strong> ha memoria, personalità, skill e voce indipendenti dagli altri bot.
               </span>
             </div>
 
@@ -390,7 +558,7 @@ export default function SidebarRight({
                 )}
               </div>
               <textarea
-                rows={7}
+                rows={6}
                 value={activeBot?.systemInstruction || ''}
                 onChange={(e) => {
                   onUpdateBot({ ...activeBot, systemInstruction: e.target.value });
@@ -400,6 +568,77 @@ export default function SidebarRight({
                 className="w-full bg-white border border-gray-200 rounded-xl p-2.5 text-[11.5px] leading-relaxed text-gray-800 focus:outline-none focus:border-gray-900 resize-y"
               />
             </div>
+
+            {/* Feature #2 dallo scraping Grok Bot: Memorie Specifiche dell'Agente */}
+            <div className="space-y-2 pt-1 border-t border-gray-200/70">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-bold text-gray-700 flex items-center gap-1.5">
+                  <Brain size={13} style={{ color: botColor }} />
+                  <span>Memorie di {activeBot?.name}</span>
+                </span>
+                <span className="text-[10px] text-gray-400">{botMemories.length} voci</span>
+              </div>
+
+              <form onSubmit={handleAddMemory} className="flex gap-1.5">
+                <input
+                  type="text"
+                  value={newMemoryText}
+                  onChange={(e) => setNewMemoryText(e.target.value)}
+                  placeholder="Aggiungi una regola o fatto da ricordare..."
+                  className="flex-1 bg-white border border-gray-200 rounded-xl px-2.5 py-1.5 text-[11px] text-gray-800 focus:outline-none"
+                />
+                <button
+                  type="submit"
+                  className="px-2.5 py-1.5 rounded-xl text-white text-xs font-bold cursor-pointer"
+                  style={{ backgroundColor: botColor }}
+                >
+                  <Plus size={13} />
+                </button>
+              </form>
+
+              {botMemories.length === 0 ? (
+                <p className="text-[10.5px] text-gray-400 italic">
+                  Ancora nessuna memoria specifica. Aggiungine una qui o chiedi al Bot in chat di ricordarla.
+                </p>
+              ) : (
+                <div className="space-y-1.5 max-h-32 overflow-y-auto">
+                  {botMemories.map((m) => (
+                    <div
+                      key={m.id}
+                      className="p-2 rounded-xl bg-white border border-gray-200 text-[11px] flex items-start justify-between gap-2"
+                    >
+                      <span className="text-gray-700 leading-snug">{m.text}</span>
+                      <button
+                        onClick={() => handleDeleteMemory(m.id)}
+                        className="text-gray-400 hover:text-red-500 shrink-0 cursor-pointer"
+                      >
+                        <Trash2 size={11} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Skill Insegnate a questo Bot */}
+            {botSkills.length > 0 && (
+              <div className="space-y-1.5 pt-1 border-t border-gray-200/70">
+                <div className="text-[11px] font-bold text-gray-700 flex items-center gap-1.5">
+                  <BookOpen size={13} style={{ color: botColor }} />
+                  <span>Skill insegnate ({botSkills.length})</span>
+                </div>
+                {botSkills.map((sk) => (
+                  <div
+                    key={sk.id}
+                    onClick={() => onOpenFileInEditor && onOpenFileInEditor(sk.fileName)}
+                    className="p-2 rounded-xl bg-white border border-gray-200 hover:bg-gray-50 cursor-pointer"
+                  >
+                    <div className="font-bold text-gray-800 text-[11px]">{sk.title}</div>
+                    <div className="text-[10px] text-gray-500 truncate">{sk.steps}</div>
+                  </div>
+                ))}
+              </div>
+            )}
 
             {!activeBot?.isGroup && (
               <>
@@ -476,7 +715,7 @@ export default function SidebarRight({
                     title="Clicca per aprire e modificare questo file su disco"
                   >
                     <div className="flex items-center gap-2.5 overflow-hidden">
-                      <FileText size={16} className="text-gray-400 shrink-0" />
+                      <FileText size={16} style={{ color: botColor }} className="shrink-0" />
                       <div className="overflow-hidden">
                         <div className="font-semibold text-gray-800 truncate text-xs">
                           {f.name}
@@ -497,4 +736,3 @@ export default function SidebarRight({
     </aside>
   );
 }
-

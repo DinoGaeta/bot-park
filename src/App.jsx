@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import SidebarLeft from './components/SidebarLeft';
 import ChatCenter from './components/ChatCenter';
 import SidebarRight from './components/SidebarRight';
@@ -8,6 +8,8 @@ import SettingsModal from './components/SettingsModal';
 import VirtualComputerModal from './components/VirtualComputerModal';
 import VoiceCallModal from './components/VoiceCallModal';
 import RoutineModal from './components/RoutineModal';
+import TeachModal from './components/TeachModal';
+import CommandPaletteModal from './components/CommandPaletteModal';
 import {
   VIRGIN_BOTS,
   KITSUNE_LABS_BOTS,
@@ -17,18 +19,43 @@ import { sounds } from './services/soundEffects';
 import { streamGeminiChat } from './services/geminiService';
 import { speakTextWithElevenLabs, stopCurrentSpeech } from './services/elevenLabsService';
 
-const STORAGE_BOTS_KEY = 'botpark_clean_bots_v1';
-const STORAGE_MESSAGES_KEY = 'botpark_clean_messages_v1';
-const STORAGE_ROUTINES_KEY = 'botpark_clean_routines_v1';
+const STORAGE_BOTS_KEY = 'botpark_bots_v4';
+const STORAGE_MESSAGES_KEY = 'botpark_messages_v4';
+const STORAGE_ROUTINES_KEY = 'botpark_routines_v1';
 
 const DEFAULT_ROUTINES = [
   {
     id: 'rt_morning_brief',
-    botId: 'capo-bot',
-    title: 'Briefing Mattutino & News',
+    botId: 'samantha',
+    title: 'Buongiorno, Meteo Torino & News',
     time: '08:30',
     frequency: 'Ogni giorno',
-    prompt: 'Dammi il buongiorno con il meteo live e le principali notizie di oggi.',
+    prompt:
+      'Dammi il buongiorno con il meteo live di Torino e le principali notizie di oggi in Italia.',
+    alsoOnTv: true,
+    enabled: true,
+    lastRunDate: '',
+  },
+  {
+    id: 'rt_reel_idea',
+    botId: 'giulia',
+    title: 'Idea Reel Giornaliero AInpratica',
+    time: '14:30',
+    frequency: 'Ogni giorno',
+    prompt:
+      'Proponi 1 idea forte di Reel AI di oggi per AInpratica basata sulle ultime novitÃ  e delega a Italo la stesura dello script.',
+    alsoOnTv: false,
+    enabled: true,
+    lastRunDate: '',
+  },
+  {
+    id: 'rt_tv_check',
+    botId: 'piton',
+    title: 'Controllo Bridge Smart TV & Servizi',
+    time: '21:00',
+    frequency: 'Ogni giorno',
+    prompt:
+      'Fai un check rapido dello stato di sistema per la serata cinema sul salotto.',
     alsoOnTv: false,
     enabled: false,
     lastRunDate: '',
@@ -36,22 +63,37 @@ const DEFAULT_ROUTINES = [
 ];
 
 export default function App() {
-  // Parte in Versione Vergine pulita (solo il Capo Bot)
-  const [isVirginMode, setIsVirginMode] = useState(true);
+  const [isVirginMode, setIsVirginMode] = useState(false);
 
+  // Ogni agente conserva la propria identitÃ , istruzioni, forma, colore, memorie, skill e voce
+  // Uniamo sempre i default di KITSUNE_LABS_BOTS per garantire che nessun bot perda mai il suo systemInstruction!
   const [bots, setBots] = useState(() => {
     try {
       const saved = localStorage.getItem(STORAGE_BOTS_KEY);
       if (saved) {
         const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return parsed.map((b) => {
+            const def = KITSUNE_LABS_BOTS.find((d) => d.id === b.id);
+            return def
+              ? {
+                  ...def,
+                  ...b,
+                  systemInstruction: b.systemInstruction || def.systemInstruction,
+                  voiceId: b.voiceId || def.voiceId,
+                  color: b.color || def.color,
+                }
+              : b;
+          });
+        }
       }
     } catch {}
-    return VIRGIN_BOTS;
+    return KITSUNE_LABS_BOTS;
   });
 
-  const [activeBotId, setActiveBotId] = useState('capo-bot');
+  const [activeBotId, setActiveBotId] = useState('samantha');
 
+  // Ogni agente conserva la propria memoria conversazionale indipendente
   const [botMessages, setBotMessages] = useState(() => {
     try {
       const saved = localStorage.getItem(STORAGE_MESSAGES_KEY);
@@ -65,6 +107,7 @@ export default function App() {
     return INITIAL_BOT_MESSAGES;
   });
 
+  // Routine automatiche programmate
   const [routines, setRoutines] = useState(() => {
     try {
       const saved = localStorage.getItem(STORAGE_ROUTINES_KEY);
@@ -99,27 +142,46 @@ export default function App() {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [showComputerModal, setShowComputerModal] = useState(false);
-  const [computerInitialTab, setComputerInitialTab] = useState('files');
+  const [computerInitialTab, setComputerInitialTab] = useState('tv');
   const [fileToOpenInComputer, setFileToOpenInComputer] = useState(null);
   const [showVoiceCallModal, setShowVoiceCallModal] = useState(false);
   const [showRoutineModal, setShowRoutineModal] = useState(false);
+  const [showTeachModal, setShowTeachModal] = useState(false);
+  const [showCommandPalette, setShowCommandPalette] = useState(false);
   const [settingsInitialTab, setSettingsInitialTab] = useState('generali');
 
-  // Chiavi API caricate da .env o localStorage (nessuna chiave privata hardcoded)
+  // Scorciatoia globale Ctrl+K per aprire la Ricerca Universale (Feature #4)
+  useEffect(() => {
+    const onKeyDown = (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        sounds.play('tick');
+        setShowCommandPalette((v) => !v);
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, []);
+
+  // Chiavi API (Gemini & ElevenLabs)
   const [geminiApiKey, setGeminiApiKey] = useState(
-    () => import.meta.env.VITE_GEMINI_API_KEY || localStorage.getItem('botpark_gemini_key') || ''
+    import.meta.env.VITE_GEMINI_API_KEY || ''
   );
   const [elevenLabsApiKey, setElevenLabsApiKey] = useState(
-    () => import.meta.env.VITE_ELEVENLABS_API_KEY || localStorage.getItem('botpark_elevenlabs_key') || ''
+    import.meta.env.VITE_ELEVENLABS_API_KEY || ''
   );
 
+  // Memoria live letta dalla Smart TV + diario locale
   const [tvLiveMemorySummary, setTvLiveMemorySummary] = useState('');
+
+  // Indice messaggio in riproduzione audio
   const [speakingMessageIndex, setSpeakingMessageIndex] = useState(null);
 
   const [inputValue, setInputValue] = useState('');
   const [isStreaming, setIsStreaming] = useState(false);
   const [isListening, setIsListening] = useState(false);
   const [attachedImages, setAttachedImages] = useState([]);
+  const [attachedDocs, setAttachedDocs] = useState([]);
 
   const isSpeakingAudio = speakingMessageIndex !== null;
   const botStatus =
@@ -130,11 +192,38 @@ export default function App() {
   const abortControllerRef = useRef(null);
   const speechRecognitionRef = useRef(null);
 
+  // Carica i secret locali da SamanthaSecure + sincronizza la memoria reale dalla Smart TV (172.20.10.3)
   useEffect(() => {
-    sounds.play('open');
+    async function initApp() {
+      if (window.botParkAPI && window.botParkAPI.getSecrets) {
+        try {
+          const secrets = await window.botParkAPI.getSecrets();
+          if (secrets) {
+            if (secrets.geminiApiKey) setGeminiApiKey(secrets.geminiApiKey);
+            if (secrets.elevenLabsApiKey) setElevenLabsApiKey(secrets.elevenLabsApiKey);
+          }
+        } catch (_) {}
+      }
+
+      try {
+        const res = await fetch('/api/tv/status');
+        const data = await res.json();
+        if (data && data.ok && Array.isArray(data.history) && data.history.length > 0) {
+          const formatted = data.history
+            .map((t) => `- Utente (su TV): "${t.user}" -> Samantha TV: "${t.jarvis}"`)
+            .join('\n');
+          setTvLiveMemorySummary(
+            `\n\nULTIME CONVERSAZIONI REALI SINCRONIZZATE DALLA SMART TV DI Utente (172.20.10.3 - App aperta ora: ${data.currentApp}):\n${formatted}`
+          );
+        }
+      } catch (_) {}
+
+      sounds.play('open');
+    }
+    initApp();
   }, []);
 
-  // Esegue tag <<<CREATE_BOT>>>, <<<TV_COMMAND>>>, <<<SEND_TO_BOT>>> e <<<WRITE_FILE>>>
+  // Esegue tag <<<CREATE_BOT>>>, <<<TV_COMMAND>>>, <<<SEND_TO_BOT>>>, <<<WRITE_FILE>>> e <<<REMEMBER>>>
   const executeBotSideEffects = useCallback(
     async (fullAssistantText, senderBotId) => {
       // 1. Creazione nuovo bot
@@ -152,10 +241,10 @@ export default function App() {
               avatarShape: botData.shape || 'bean',
               systemInstruction:
                 botData.systemInstruction ||
-                `Sei ${botData.name}, agente specializzato di Bot Park, con identità e memoria indipendenti.`,
+                `Sei ${botData.name}, agente specializzato di Utente in Il Tuo Team AI, con identitÃ  e memoria indipendenti.`,
               voiceId: 'TX3LPaxmHKxFdv7VOQHJ',
-              voice: 'Liam',
-              speed: '1.10x',
+              voice: 'Liam (Steve/Spielberg)',
+              speed: '1.15x',
               language: 'Italian',
               computerStatus: 'Attivo',
             };
@@ -170,7 +259,7 @@ export default function App() {
               [newId]: [
                 {
                   role: 'assistant',
-                  content: `Ciao! Sono **${newBot.name}** (${newBot.subtitle}). La mia identità e la mia memoria sono pronte. Da dove partiamo?`,
+                  content: `Ciao Utente! Sono **${newBot.name}** (${newBot.subtitle}). La mia identitÃ  e la mia memoria sono pronte. Da dove partiamo?`,
                 },
               ],
               [senderBotId]: (prev[senderBotId] || []).map((m, idx, arr) =>
@@ -178,8 +267,8 @@ export default function App() {
                   ? {
                       ...m,
                       actionChip: {
-                        icon: '✨',
-                        text: `Agente ${newBot.name} creato • Apri chat`,
+                        icon: 'âœ¨',
+                        text: `Agente ${newBot.name} creato â€¢ Apri chat`,
                         targetBotId: newId,
                       },
                     }
@@ -193,7 +282,32 @@ export default function App() {
         }
       }
 
-      // 2. Scrittura reale di un file nel workspace dell'Agente
+      // 2. Auto-Learning Memoria del Bot (<<<REMEMBER: "fatto da ricordare">>>)
+      if (fullAssistantText.includes('<<<REMEMBER:')) {
+        const memMatch = fullAssistantText.match(/<<<REMEMBER:\s*"?([^">]+)"?\s*>>>/);
+        if (memMatch && memMatch[1]) {
+          const fact = memMatch[1].trim();
+          setBots((prev) =>
+            prev.map((b) =>
+              b.id === senderBotId
+                ? {
+                    ...b,
+                    memories: [
+                      {
+                        id: `mem_${Date.now()}`,
+                        text: fact,
+                        date: new Date().toLocaleDateString('it-IT'),
+                      },
+                      ...(b.memories || []),
+                    ],
+                  }
+                : b
+            )
+          );
+        }
+      }
+
+      // 3. Scrittura reale di un file nel workspace dell'Agente
       if (fullAssistantText.includes('<<<WRITE_FILE:')) {
         const fileMatch = fullAssistantText.match(/<<<WRITE_FILE:\s*(\{[\s\S]*?\})\s*>>>/);
         if (fileMatch && fileMatch[1]) {
@@ -218,7 +332,7 @@ export default function App() {
                   thread[thread.length - 1] = {
                     ...thread[thread.length - 1],
                     actionChip: {
-                      icon: '📄',
+                      icon: 'ðŸ“„',
                       text: `File salvato su disco: ${data.name}`,
                     },
                   };
@@ -232,7 +346,7 @@ export default function App() {
         }
       }
 
-      // 3. Messaggio / Delega Inter-Agente
+      // 4. Messaggio / Delega Inter-Agente
       if (fullAssistantText.includes('<<<SEND_TO_BOT:')) {
         const msgMatch = fullAssistantText.match(/<<<SEND_TO_BOT:\s*(\{[\s\S]*?\})\s*>>>/);
         if (msgMatch && msgMatch[1]) {
@@ -251,8 +365,8 @@ export default function App() {
                   senderThread[senderThread.length - 1] = {
                     ...senderThread[senderThread.length - 1],
                     actionChip: {
-                      icon: '💬',
-                      text: `Messaggio inviato a ${targetBot.name}`,
+                      icon: 'ðŸ’¬',
+                      text: `Messaggio inviato a ${targetBot.name} â€¢ Apri chat`,
                       targetBotId: targetBot.id,
                     },
                   };
@@ -260,13 +374,13 @@ export default function App() {
                 return { ...prev, [senderBotId]: senderThread };
               });
 
-              const incomingNote = `[Messaggio dal collega ${senderBot?.name || 'Capo Bot'}]: ${payload.message}`;
+              const incomingNote = `[Messaggio dal collega ${senderBot?.name || 'Samantha'}]: ${payload.message}`;
               const targetThread = [
                 ...(botMessages[targetBot.id] || []),
                 {
                   role: 'user',
                   content: incomingNote,
-                  timestamp: `Da ${senderBot?.name || 'Capo Bot'}`,
+                  timestamp: `Da ${senderBot?.name || 'Samantha'}`,
                 },
               ];
 
@@ -280,7 +394,7 @@ export default function App() {
                 model: 'gemini-3.5-flash-lite',
                 messages: targetThread,
                 personaId: targetBot.id,
-                customSystemInstruction: targetBot.systemInstruction,
+                customSystemInstruction: `IDENTITÃ€ ASSOLUTA: Tu sei ${targetBot.name} (${targetBot.subtitle}).\n${targetBot.systemInstruction}`,
               });
 
               const cleanReply = replyText
@@ -313,7 +427,7 @@ export default function App() {
         }
       }
 
-      // 4. Comando verso Android TV via ADB
+      // 5. Comando reale verso la Smart TV Android (172.20.10.3:5555)
       if (fullAssistantText.includes('<<<TV_COMMAND:')) {
         const tvMatch = fullAssistantText.match(/<<<TV_COMMAND:\s*(\{[\s\S]*?\})\s*>>>/);
         if (tvMatch && tvMatch[1]) {
@@ -327,15 +441,15 @@ export default function App() {
             const data = await res.json();
             if (data && data.ok) {
               const chipText = data.tvReply
-                ? `Android TV: «${data.tvReply}»`
-                : `Comando TV eseguito: ${tvCmd.type}`;
+                ? `Smart TV (172.20.10.3): Â«${data.tvReply}Â»`
+                : `Comando TV eseguito: ${tvCmd.type} (${tvCmd.app || tvCmd.key || tvCmd.text || 'OK'})`;
 
               setBotMessages((prev) => {
                 const thread = [...(prev[senderBotId] || [])];
                 if (thread.length > 0) {
                   thread[thread.length - 1] = {
                     ...thread[thread.length - 1],
-                    actionChip: { icon: '📺', text: chipText },
+                    actionChip: { icon: 'ðŸ“º', text: chipText },
                   };
                 }
                 return { ...prev, [senderBotId]: thread };
@@ -350,23 +464,32 @@ export default function App() {
     [bots, botMessages, geminiApiKey]
   );
 
-  // Ripristina Versione Vergine Pulita
+  // Passa a Versione Vergine Pulita
   const handleResetVirgin = () => {
     setIsVirginMode(true);
     setBots(VIRGIN_BOTS);
-    setActiveBotId('capo-bot');
-    setBotMessages({ 'capo-bot': INITIAL_BOT_MESSAGES['capo-bot'] });
+    setActiveBotId('samantha');
+    const cleanMsgs = {
+      samantha: [
+        {
+          role: 'assistant',
+          content:
+            'Area di lavoro ripulita, Utente! Sono **Samantha**, la tua **Capo Bot**. Ho con me tutta la nostra memoria e il controllo della Smart TV. Chiedimi pure di creare nuovi bot per la squadra o di gestire il salotto!',
+        },
+      ],
+    };
+    setBotMessages(cleanMsgs);
     localStorage.removeItem(STORAGE_BOTS_KEY);
     localStorage.removeItem(STORAGE_MESSAGES_KEY);
     sounds.play('success');
   };
 
-  // Carica 3 Agenti Starter di Esempio
+  // Carica Squadra Completa Il Tuo Team AI
   const handleLoadDemo = () => {
     setIsVirginMode(false);
     setBots(KITSUNE_LABS_BOTS);
     setBotMessages(INITIAL_BOT_MESSAGES);
-    setActiveBotId('capo-bot');
+    setActiveBotId('samantha');
     sounds.play('tick');
   };
 
@@ -375,9 +498,9 @@ export default function App() {
     setShowSettingsModal(true);
   };
 
-  const handleOpenComputer = (tab = 'files') => {
+  const handleOpenComputer = (tab = 'tv') => {
     setFileToOpenInComputer(null);
-    setComputerInitialTab(typeof tab === 'string' ? tab : 'files');
+    setComputerInitialTab(typeof tab === 'string' ? tab : 'tv');
     setShowComputerModal(true);
   };
 
@@ -387,6 +510,7 @@ export default function App() {
     setShowComputerModal(true);
   };
 
+  // Riproduzione Vocale ElevenLabs con la voce specifica dell'Agente
   const handleSpeakMessage = async (text, msgIndex) => {
     if (speakingMessageIndex === msgIndex) {
       await stopCurrentSpeech();
@@ -397,7 +521,7 @@ export default function App() {
     sounds.play('tick');
     setSpeakingMessageIndex(msgIndex);
 
-    const voiceId = activeBot?.voiceId || '21m00Tcm4TlvDq8ikWAM';
+    const voiceId = activeBot?.voiceId || 'CiwzbDpaN3pQXjTgx3ML';
 
     await speakTextWithElevenLabs({
       text,
@@ -410,6 +534,7 @@ export default function App() {
     });
   };
 
+  // Creazione Nuovo Bot tramite Modale
   const handleCreateBot = (newBot) => {
     const botWithDefaults = {
       ...newBot,
@@ -418,7 +543,7 @@ export default function App() {
         {
           id: 'f1',
           name: `identita_${newBot.id}.md`,
-          date: 'Oggi • Creato',
+          date: 'Oggi â€¢ Creato',
           size: '4.0 KB',
         },
       ],
@@ -430,12 +555,13 @@ export default function App() {
       [botWithDefaults.id]: [
         {
           role: 'assistant',
-          content: `Ciao! Sono **${botWithDefaults.name}**. Ruolo: ${botWithDefaults.subtitle}. La mia memoria indipendente è attiva: come posso aiutarti?`,
+          content: `Ciao Utente! Sono **${botWithDefaults.name}**, appena forgiato insieme a Samantha. Ruolo: ${botWithDefaults.subtitle}. La mia memoria indipendente Ã¨ attiva: come posso aiutarti?`,
         },
       ],
     }));
   };
 
+  // Salva un turno completato nella Chiamata Vocale Live dentro la chat dell'Agente
   const handleVoiceTurnCompleted = useCallback(
     (userTranscript, rawBotReply) => {
       const cleanDisplay = String(rawBotReply || '')
@@ -443,6 +569,7 @@ export default function App() {
         .replace(/<<<TV_COMMAND:[\s\S]*?>>>/g, '')
         .replace(/<<<SEND_TO_BOT:[\s\S]*?>>>/g, '')
         .replace(/<<<WRITE_FILE:[\s\S]*?>>>/g, '')
+        .replace(/<<<REMEMBER:[\s\S]*?>>>/g, '')
         .trim();
 
       setBotMessages((prev) => {
@@ -451,7 +578,7 @@ export default function App() {
           ...prev,
           [activeBotId]: [
             ...current,
-            { role: 'user', content: `🎙️ ${userTranscript}`, timestamp: 'Chiamata Vocale' },
+            { role: 'user', content: `ðŸŽ™ï¸ ${userTranscript}`, timestamp: 'Chiamata Vocale' },
             { role: 'assistant', content: cleanDisplay, timestamp: 'Chiamata Vocale' },
           ],
         };
@@ -462,25 +589,48 @@ export default function App() {
     [activeBotId, executeBotSideEffects]
   );
 
+  // Cattura istantanea dello schermo PC Windows di Utente e lo allega in chat (Feature #5)
+  const handleCapturePcScreen = async () => {
+    sounds.play('tick');
+    try {
+      const res = await fetch('/api/pc/screenshot');
+      const data = await res.json();
+      if (data && data.ok && data.base64) {
+        setAttachedImages((prev) => [
+          ...prev,
+          {
+            mimeType: 'image/jpeg',
+            base64: data.base64,
+            previewUrl: data.dataUrl,
+          },
+        ]);
+        if (!inputValue.trim()) {
+          setInputValue('Guarda il mio schermo PC in questo momento: ');
+        }
+        sounds.play('success');
+      }
+    } catch (e) {
+      alert('Impossibile catturare lo schermo PC: ' + e.message);
+    }
+  };
+
+  // Invio Messaggio all'Agente attivo
   const handleSendMessage = async (forcedText, targetBotOverrideId = null) => {
     const text = (forcedText !== undefined ? forcedText : inputValue).trim();
-    if ((!text && attachedImages.length === 0) || isStreaming) return;
-
-    // Shortcut rapida se l'utente clicca sull'opzione per caricare i 3 agenti di esempio
-    if (text === 'Carica 3 agenti di esempio (DevBot, CopyBot, ScoutBot)') {
-      handleLoadDemo();
+    if ((!text && attachedImages.length === 0 && attachedDocs.length === 0) || isStreaming)
       return;
-    }
 
     sounds.play('doubleTick');
     const currentBotId = targetBotOverrideId || activeBotId;
     const currentBotObj = bots.find((b) => b.id === currentBotId) || activeBot;
     const currentThread = botMessages[currentBotId] || [];
 
+    const docsSnapshot = [...attachedDocs];
     const userMsg = {
       role: 'user',
-      content: text,
+      content: text || (docsSnapshot.length > 0 ? `Allegato: ${docsSnapshot.map((d) => d.name).join(', ')}` : 'Immagine allegata'),
       images: attachedImages.length > 0 ? [...attachedImages] : undefined,
+      docs: docsSnapshot.length > 0 ? docsSnapshot : undefined,
       timestamp: 'Adesso',
     };
 
@@ -492,6 +642,7 @@ export default function App() {
     if (forcedText === undefined) {
       setInputValue('');
       setAttachedImages([]);
+      setAttachedDocs([]);
     }
     setIsStreaming(true);
 
@@ -505,13 +656,42 @@ export default function App() {
     try {
       let fullAssistantText = '';
 
-      let systemPrompt = currentBotObj.systemInstruction || '';
-      if (currentBotObj.isMain) {
+      const identityHeader =
+        currentBotObj.id !== 'samantha'
+          ? `IDENTITÃ€ ASSOLUTA DELL'AGENTE: Tu sei ESCLUSIVAMENTE "${currentBotObj.name}" (${currentBotObj.subtitle}). NON sei Samantha! Rispondi sempre con la personalitÃ , il ruolo e lo stile di ${currentBotObj.name}.\n\n`
+          : '';
+
+      let systemPrompt = `${identityHeader}${currentBotObj.systemInstruction || ''}`;
+      if (currentBotObj.isMain || currentBotObj.id === 'samantha') {
         systemPrompt += tvLiveMemorySummary;
       }
 
-      systemPrompt += `\n\nHAI ACCESSO DIRETTO AL TUO DISCO LOCALE (Libreria): se l'utente ti chiede di salvare un file, uno script, un documento o un appunto nella tua Libreria, aggiungi a fine risposta il tag: <<<WRITE_FILE: {"name": "nome_file.md", "content": "contenuto completo del file"}>>>.`;
+      // Inietta Memorie e Skill insegnate a questo specifico Bot (Feature #1 & #2)
+      if (Array.isArray(currentBotObj.memories) && currentBotObj.memories.length > 0) {
+        systemPrompt += `\n\n[MEMORIE SPECIFICHE DI ${currentBotObj.name.toUpperCase()}]:\n${currentBotObj.memories
+          .map((m) => `- ${m.text}`)
+          .join('\n')}`;
+      }
+      if (Array.isArray(currentBotObj.skills) && currentBotObj.skills.length > 0) {
+        systemPrompt += `\n\n[SKILL & PROCEDURE INSEGNATE A ${currentBotObj.name.toUpperCase()}]:\n${currentBotObj.skills
+          .map((s) => `- ${s.title}: ${s.steps}`)
+          .join('\n')}`;
+      }
 
+      // Se l'utente ha allegato documenti (.txt, .md, .csv, .json, .pdf, codice), iniettiamoli nel contesto
+      if (docsSnapshot.length > 0) {
+        systemPrompt += `\n\n[DOCUMENTI ALLEGATI DALL'UTENTE IN QUESTO MESSAGGIO]:\n${docsSnapshot
+          .map((d) => `--- FILE: ${d.name} ---\n${d.content}`)
+          .join('\n\n')}`;
+      }
+
+      // Istruzioni operative per salvataggio file, delega @menzioni e auto-apprendimento memoria
+      systemPrompt += `\n\nCOMANDI SPECIALI A TUA DISPOSIZIONE:
+- Se Utente ti chiede di salvare un file/script/documento nella tua Libreria su disco, aggiungi a fine risposta: <<<WRITE_FILE: {"name": "nome_file.md", "content": "contenuto completo"}>>>
+- Se Utente ti insegna una preferenza permanente o ti chiede di ricordare una regola, aggiungi a fine risposta: <<<REMEMBER: "regola o fatto da ricordare">>>
+- Se Utente menziona un altro collega con @NomeBot o ti chiede di delegare a un collega, aggiungi a fine risposta: <<<SEND_TO_BOT: {"targetId": "nome_bot_minuscolo", "message": "compito da svolgere"}>>>`;
+
+      // 1. Se il messaggio contiene un URL http/https, scarichiamo il contenuto live!
       const urlMatch = text.match(/https?:\/\/[^\s)]+/i);
       if (urlMatch && urlMatch[0]) {
         try {
@@ -527,12 +707,13 @@ export default function App() {
         } catch (_) {}
       }
 
-      if (/meteo|notizie|news|tempo fa|oggi|cronaca|giornale|ultime ore|briefing/i.test(text)) {
+      // 2. Se il messaggio chiede meteo, notizie, briefing di oggi o Torino, iniettiamo i dati live!
+      if (/meteo|notizie|news|tempo fa|oggi|cronaca|torino|giornale|ultime ore|briefing/i.test(text)) {
         try {
           const briefRes = await fetch('/api/web/briefing');
           const briefData = await briefRes.json();
           if (briefData && briefData.ok && briefData.combined) {
-            systemPrompt += `\n\n[DATI LIVE IN TEMPO REALE — METEO & GOOGLE NEWS ITALIA]:\n${briefData.combined}`;
+            systemPrompt += `\n\n[DATI LIVE IN TEMPO REALE â€” METEO TORINO & GOOGLE NEWS ITALIA]:\n${briefData.combined}`;
           }
         } catch (_) {}
       }
@@ -551,6 +732,7 @@ export default function App() {
             .replace(/<<<TV_COMMAND:[\s\S]*?>>>/g, '')
             .replace(/<<<SEND_TO_BOT:[\s\S]*?>>>/g, '')
             .replace(/<<<WRITE_FILE:[\s\S]*?>>>/g, '')
+            .replace(/<<<REMEMBER:[\s\S]*?>>>/g, '')
             .trim();
           setBotMessages((prev) => {
             const thread = [...(prev[currentBotId] || [])];
@@ -588,7 +770,7 @@ export default function App() {
           if (thread.length > 0) {
             thread[thread.length - 1] = {
               role: 'assistant',
-              content: `⚠️ ${err.message}`,
+              content: `âš ï¸ Errore di connessione: ${err.message}`,
             };
           }
           return { ...prev, [currentBotId]: thread };
@@ -601,13 +783,15 @@ export default function App() {
     }
   };
 
+  // Esecuzione reale di una Routine (manuale o automatica da scheduler)
   const handleRunRoutine = useCallback(
     async (routine) => {
       if (!routine) return;
       const targetBotId = routine.botId || activeBotId;
+      const targetBotObj = bots.find((b) => b.id === targetBotId) || activeBot;
       setActiveBotId(targetBotId);
       const reply = await handleSendMessage(
-        `⏰ [Routine Automatica "${routine.title}"]: ${routine.prompt}`,
+        `â° [Routine Automatica "${routine.title}"]: ${routine.prompt}`,
         targetBotId
       );
       if (routine.alsoOnTv && reply) {
@@ -616,8 +800,9 @@ export default function App() {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              type: 'jarvis_say',
+              type: 'samantha_speak',
               text: reply.slice(0, 260),
+              voiceId: targetBotObj?.voiceId || 'CiwzbDpaN3pQXjTgx3ML',
             }),
           });
         } catch (_) {}
@@ -626,6 +811,7 @@ export default function App() {
     [activeBotId, geminiApiKey, bots, botMessages]
   );
 
+  // Scheduler in background: controlla ogni 25 secondi se una routine attiva deve scattare all'orario HH:MM
   useEffect(() => {
     const timer = setInterval(() => {
       const now = new Date();
@@ -648,26 +834,55 @@ export default function App() {
     return () => clearInterval(timer);
   }, [routines, handleRunRoutine]);
 
+  // Allegati immagini E documenti (.pdf, .txt, .md, .csv, .json, codice)
   const handleAttachImage = (e) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onload = (ev) => {
-        const dataUrl = ev.target.result;
-        setAttachedImages((prev) => [
-          ...prev,
-          {
-            mimeType: file.type || 'image/png',
-            base64: dataUrl.split(',')[1],
-            previewUrl: dataUrl,
-          },
-        ]);
-        sounds.play('tick');
-      };
-      reader.readAsDataURL(file);
+    const files = Array.from(e.target.files || []);
+    files.forEach((file) => {
+      if (file.type.startsWith('image/')) {
+        const reader = new FileReader();
+        reader.onload = (ev) => {
+          const dataUrl = ev.target.result;
+          setAttachedImages((prev) => [
+            ...prev,
+            {
+              mimeType: file.type || 'image/png',
+              base64: dataUrl.split(',')[1],
+              previewUrl: dataUrl,
+            },
+          ]);
+          sounds.play('tick');
+        };
+        reader.readAsDataURL(file);
+      } else {
+        const reader = new FileReader();
+        reader.onload = (ev) => {
+          const textContent = String(ev.target.result || '').slice(0, 12000);
+          setAttachedDocs((prev) => [
+            ...prev,
+            {
+              name: file.name,
+              size: `${(file.size / 1024).toFixed(1)} KB`,
+              content: textContent,
+            },
+          ]);
+          sounds.play('tick');
+        };
+        reader.readAsText(file);
+      }
+    });
+    e.target.value = '';
+  };
+
+  const handleRemoveAttachment = (type, index) => {
+    sounds.play('tick');
+    if (type === 'image') {
+      setAttachedImages((prev) => prev.filter((_, i) => i !== index));
+    } else {
+      setAttachedDocs((prev) => prev.filter((_, i) => i !== index));
     }
   };
 
+  // Dettatura Vocale rapida nella barra di testo
   const handleToggleListening = () => {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SpeechRecognition) {
@@ -711,6 +926,7 @@ export default function App() {
 
   return (
     <div className="w-screen h-screen flex bg-white overflow-hidden font-['Plus_Jakarta_Sans',sans-serif]">
+      {/* 1. Sidebar Sinistra (Samantha Capo Bot in cima + Teammates Indipendenti) */}
       <SidebarLeft
         bots={bots}
         activeBotId={activeBotId}
@@ -724,8 +940,10 @@ export default function App() {
         onOpenPairModal={() => setShowPairModal(true)}
       />
 
+      {/* 2. Centro Chat (con colore dinamico dell'Agente, @menzioni, Canvas a schermo intero e allegati multi-formato) */}
       <ChatCenter
         activeBot={activeBot}
+        bots={bots}
         messages={activeMessages}
         inputValue={inputValue}
         onChangeInput={(e) => setInputValue(e.target.value)}
@@ -735,13 +953,18 @@ export default function App() {
         onToggleListening={handleToggleListening}
         onStartVoiceCall={() => setShowVoiceCallModal(true)}
         attachedImages={attachedImages}
+        attachedDocs={attachedDocs}
         onAttachImage={handleAttachImage}
+        onRemoveAttachment={handleRemoveAttachment}
+        onCapturePcScreen={handleCapturePcScreen}
+        onOpenSearch={() => setShowCommandPalette(true)}
         onSpeakMessage={handleSpeakMessage}
         onSelectOption={(opt) => handleSendMessage(opt)}
         onSelectBot={(id) => setActiveBotId(id)}
         speakingMessageIndex={speakingMessageIndex}
       />
 
+      {/* 3. Sidebar Destra (AttivitÃ , Promemoria, Insegna Skill, Memorie, Libreria su Disco, Smart TV e Voce ElevenLabs) */}
       <SidebarRight
         activeBot={activeBot}
         onUpdateBot={(updated) =>
@@ -751,20 +974,25 @@ export default function App() {
         onOpenComputer={handleOpenComputer}
         onOpenFileInEditor={handleOpenFileInEditor}
         onCreateRoutine={() => setShowRoutineModal(true)}
+        onOpenTeachModal={() => setShowTeachModal(true)}
+        onRunTaskInChat={(taskText) => handleSendMessage(taskText)}
         elevenLabsApiKey={elevenLabsApiKey}
         onMinimize={() => window.botParkAPI?.minimize()}
         onMaximize={() => window.botParkAPI?.toggleMaximize()}
         onClose={() => window.botParkAPI?.close()}
       />
 
+      {/* 4. Modale Creazione Nuovo Agente */}
       <CreateBotModal
         isOpen={showCreateModal}
         onClose={() => setShowCreateModal(false)}
         onCreate={handleCreateBot}
       />
 
+      {/* 5. Modale Accoppiamento Mobile via QR Code */}
       <MobilePairModal isOpen={showPairModal} onClose={() => setShowPairModal(false)} />
 
+      {/* 6. Modale Impostazioni Ufficiale (con Cassaforte reale e Importazione Memoria) */}
       <SettingsModal
         isOpen={showSettingsModal}
         onClose={() => setShowSettingsModal(false)}
@@ -772,11 +1000,12 @@ export default function App() {
         initialTab={settingsInitialTab}
         onMemoryImported={(excerpt) =>
           setTvLiveMemorySummary(
-            (prev) => `${prev}\n\n[MEMORIA IMPORTATA]:\n${excerpt}`
+            (prev) => `${prev}\n\n[DIARIO MEMORIA_GEMINI.TXT SINCRONIZZATO]:\n${excerpt}`
           )
         }
       />
 
+      {/* 7. Virtual Computer Reale (Terminale, File Manager su Disco, Browser Live + Controllo Smart TV Android) */}
       <VirtualComputerModal
         isOpen={showComputerModal}
         onClose={() => setShowComputerModal(false)}
@@ -786,6 +1015,7 @@ export default function App() {
         initialFileToOpen={fileToOpenInComputer}
       />
 
+      {/* 8. Chiamata Vocale Live con Barge-In, IdentitÃ  Indipendente & Uscita Reale Voce su TV */}
       <VoiceCallModal
         isOpen={showVoiceCallModal}
         onClose={() => setShowVoiceCallModal(false)}
@@ -796,6 +1026,7 @@ export default function App() {
         onVoiceTurnCompleted={handleVoiceTurnCompleted}
       />
 
+      {/* 9. Modale Routine Programmate & Scheduler Giornaliero */}
       <RoutineModal
         isOpen={showRoutineModal}
         onClose={() => setShowRoutineModal(false)}
@@ -814,6 +1045,35 @@ export default function App() {
           setShowRoutineModal(false);
           handleRunRoutine(rt);
         }}
+      />
+
+      {/* 10. Modale "Insegna un'attivitÃ " (Teach Mode + Registrazione Schermo PC) */}
+      <TeachModal
+        isOpen={showTeachModal}
+        onClose={() => setShowTeachModal(false)}
+        activeBot={activeBot}
+        onSaveSkill={(newSkill) => {
+          setBots((prev) =>
+            prev.map((b) =>
+              b.id === activeBot.id
+                ? { ...b, skills: [newSkill, ...(b.skills || [])] }
+                : b
+            )
+          );
+        }}
+      />
+
+      {/* 11. Ricerca Universale Ctrl+K */}
+      <CommandPaletteModal
+        isOpen={showCommandPalette}
+        onClose={() => setShowCommandPalette(false)}
+        bots={bots}
+        botMessages={botMessages}
+        onSelectBot={(id) => setActiveBotId(id)}
+        onOpenSettings={handleOpenSettings}
+        onOpenRoutine={() => setShowRoutineModal(true)}
+        onOpenTeach={() => setShowTeachModal(true)}
+        onOpenComputer={handleOpenComputer}
       />
     </div>
   );

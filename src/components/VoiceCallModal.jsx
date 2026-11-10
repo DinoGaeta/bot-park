@@ -1,14 +1,11 @@
-﻿import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   PhoneOff,
   Mic,
   MicOff,
-  Volume2,
   Tv,
-  Sparkles,
   Send,
-  Radio,
 } from 'lucide-react';
 import BotAvatar from './BotAvatar';
 import { sounds } from '../services/soundEffects';
@@ -32,12 +29,43 @@ export default function VoiceCallModal({
   const [callDuration, setCallDuration] = useState(0);
   const [errorBanner, setErrorBanner] = useState('');
 
+  // Ref sempre aggiornati per evitare qualsiasi closure obsoleta (così Spielberg è sempre Spielberg!)
+  const activeBotRef = useRef(activeBot);
+  const messagesRef = useRef(messages);
+  const speakOnTvTooRef = useRef(speakOnTvToo);
+  const geminiApiKeyRef = useRef(geminiApiKey);
+  const elevenLabsApiKeyRef = useRef(elevenLabsApiKey);
+  const onVoiceTurnCompletedRef = useRef(onVoiceTurnCompleted);
+
+  useEffect(() => {
+    activeBotRef.current = activeBot;
+  }, [activeBot]);
+  useEffect(() => {
+    messagesRef.current = messages;
+  }, [messages]);
+  useEffect(() => {
+    speakOnTvTooRef.current = speakOnTvToo;
+  }, [speakOnTvToo]);
+  useEffect(() => {
+    geminiApiKeyRef.current = geminiApiKey;
+  }, [geminiApiKey]);
+  useEffect(() => {
+    elevenLabsApiKeyRef.current = elevenLabsApiKey;
+  }, [elevenLabsApiKey]);
+  useEffect(() => {
+    onVoiceTurnCompletedRef.current = onVoiceTurnCompleted;
+  }, [onVoiceTurnCompleted]);
+
   const mediaRecorderRef = useRef(null);
   const audioChunksRef = useRef([]);
   const streamRef = useRef(null);
   const audioContextRef = useRef(null);
   const analyserRef = useRef(null);
   const rafRef = useRef(null);
+  const bargeInRafRef = useRef(null);
+  const bargeInStreamRef = useRef(null);
+  const bargeInCtxRef = useRef(null);
+  const tvSpeechTimerRef = useRef(null);
   const silenceStartRef = useRef(null);
   const hasSpokenInTurnRef = useRef(false);
   const speechRecRef = useRef(null);
@@ -62,8 +90,32 @@ export default function VoiceCallModal({
     return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
   };
 
+  const stopBargeInMonitor = useCallback(() => {
+    if (bargeInRafRef.current) {
+      cancelAnimationFrame(bargeInRafRef.current);
+      bargeInRafRef.current = null;
+    }
+    if (tvSpeechTimerRef.current) {
+      clearTimeout(tvSpeechTimerRef.current);
+      tvSpeechTimerRef.current = null;
+    }
+    try {
+      if (bargeInStreamRef.current) {
+        bargeInStreamRef.current.getTracks().forEach((t) => t.stop());
+        bargeInStreamRef.current = null;
+      }
+    } catch {}
+    try {
+      if (bargeInCtxRef.current && bargeInCtxRef.current.state !== 'closed') {
+        bargeInCtxRef.current.close();
+        bargeInCtxRef.current = null;
+      }
+    } catch {}
+  }, []);
+
   const cleanupRecording = useCallback(() => {
     if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    stopBargeInMonitor();
     try {
       if (speechRecRef.current) {
         speechRecRef.current.onend = null;
@@ -88,7 +140,7 @@ export default function VoiceCallModal({
       }
     } catch {}
     setAudioLevel(0);
-  }, []);
+  }, [stopBargeInMonitor]);
 
   const blobToBase64 = (blob) =>
     new Promise((resolve, reject) => {
@@ -101,9 +153,217 @@ export default function VoiceCallModal({
       reader.readAsDataURL(blob);
     });
 
+  // Interrompe immediatamente il parlato del Bot (PC + Smart TV) e passa all'ascolto di Dion
+  const interruptBotSpeechAndListen = useCallback(() => {
+    stopBargeInMonitor();
+    stopCurrentSpeech();
+    if (speakOnTvTooRef.current) {
+      fetch('/api/tv/command', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: 'stop_speak' }),
+      }).catch(() => {});
+    }
+    if (isMountedRef.current) {
+      startListeningTurn();
+    }
+  }, [stopBargeInMonitor]);
+
+  // Monitora il microfono mentre il Bot parla per Barge-In (se Dion inizia a parlare, il Bot si zittisce subito e ascolta!)
+  const startBargeInMonitor = useCallback(async () => {
+    stopBargeInMonitor();
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
+      });
+      if (!isMountedRef.current) {
+        stream.getTracks().forEach((t) => t.stop());
+        return;
+      }
+      bargeInStreamRef.current = stream;
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      bargeInCtxRef.current = ctx;
+      const src = ctx.createMediaStreamSource(stream);
+      const analyser = ctx.createAnalyser();
+      analyser.fftSize = 256;
+      src.connect(analyser);
+      const data = new Uint8Array(analyser.frequencyBinCount);
+      const startedAt = Date.now();
+      let consecutiveVoiceFrames = 0;
+
+      const checkBargeIn = () => {
+        if (!isMountedRef.current || !bargeInStreamRef.current) return;
+        analyser.getByteFrequencyData(data);
+        // Concentriamoci sulle frequenze vocali umane (bin 4..45)
+        let sum = 0;
+        const count = Math.min(45, data.length);
+        for (let i = 4; i < count; i++) sum += data[i];
+        const avg = sum / (count - 4);
+
+        // Dopo 750ms di grazia iniziale, se Dion parla con voce chiara per ~220ms consecutivi, interrompi il bot!
+        if (Date.now() - startedAt > 750) {
+          if (avg > 44) {
+            consecutiveVoiceFrames += 1;
+            if (consecutiveVoiceFrames >= 11) {
+              interruptBotSpeechAndListen();
+              return;
+            }
+          } else {
+            consecutiveVoiceFrames = Math.max(0, consecutiveVoiceFrames - 1);
+          }
+        }
+        bargeInRafRef.current = requestAnimationFrame(checkBargeIn);
+      };
+      bargeInRafRef.current = requestAnimationFrame(checkBargeIn);
+    } catch {}
+  }, [stopBargeInMonitor, interruptBotSpeechAndListen]);
+
+  const finishListeningAndSend = useCallback(() => {
+    if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    try {
+      if (speechRecRef.current) {
+        speechRecRef.current.onend = null;
+        speechRecRef.current.stop();
+      }
+    } catch {}
+    try {
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+        mediaRecorderRef.current.stop();
+      }
+    } catch {}
+    try {
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach((t) => t.stop());
+        streamRef.current = null;
+      }
+    } catch {}
+  }, []);
+
+  const processCapturedVoice = useCallback(
+    async (audioBlob, fallbackText) => {
+      if (!isMountedRef.current) return;
+
+      if (audioBlob.size < 1400 && !fallbackText) {
+        startListeningTurn();
+        return;
+      }
+
+      setCallState('thinking');
+      sounds.play('tick');
+
+      const currentBot = activeBotRef.current;
+
+      try {
+        const base64Audio = await blobToBase64(audioBlob);
+        const { transcript, reply } = await sendVoiceAudioToGemini({
+          apiKey: geminiApiKeyRef.current,
+          audioBase64: base64Audio,
+          mimeType: audioBlob.type || 'audio/webm',
+          spokenTextFallback: fallbackText,
+          messages: messagesRef.current,
+          personaId: currentBot?.id || 'samantha',
+          botName: currentBot?.name || 'Samantha',
+          botSubtitle: currentBot?.subtitle || '',
+          customSystemInstruction: currentBot?.systemInstruction || '',
+        });
+
+        if (!isMountedRef.current) return;
+
+        const cleanTranscript = (transcript || fallbackText || '').trim();
+        if (!cleanTranscript || cleanTranscript === '...') {
+          startListeningTurn();
+          return;
+        }
+
+        setLiveTranscript(cleanTranscript);
+
+        const cleanSpokenReply = (reply || '')
+          .replace(/<<<TV_COMMAND:[\s\S]*?>>>/g, '')
+          .replace(/<<<CREATE_BOT:[\s\S]*?>>>/g, '')
+          .replace(/<<<SEND_TO_BOT:[\s\S]*?>>>/g, '')
+          .replace(/<<<WRITE_FILE:[\s\S]*?>>>/g, '')
+          .trim();
+
+        setBotReplyText(cleanSpokenReply);
+        setCallState('speaking');
+
+        if (onVoiceTurnCompletedRef.current) {
+          onVoiceTurnCompletedRef.current(cleanTranscript, reply);
+        }
+
+        const voiceId = currentBot?.voiceId || 'CiwzbDpaN3pQXjTgx3ML';
+
+        // Attiva il monitor Barge-In così se Dion parla sopra al Bot, il Bot si ferma subito per ascoltarlo!
+        startBargeInMonitor();
+
+        // SE "Voce su TV: ON" è attivo, facciamo uscire la voce dell'Agente direttamente dagli altoparlanti della Smart TV (172.20.10.3)!
+        if (speakOnTvTooRef.current) {
+          await fetch('/api/tv/command', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              type: 'samantha_speak',
+              text: cleanSpokenReply,
+              voiceId,
+              botName: currentBot?.name || 'Samantha',
+            }),
+          }).catch(() => {});
+
+          // Calcola la durata stimata del parlato sulla TV (o interrompi prima se Dion parla!)
+          const wordCount = cleanSpokenReply.split(/\s+/).filter(Boolean).length;
+          const estimatedMs = Math.max(2800, Math.min(18000, wordCount * 390 + 1200));
+          tvSpeechTimerRef.current = setTimeout(() => {
+            stopBargeInMonitor();
+            if (isMountedRef.current) {
+              startListeningTurn();
+            }
+          }, estimatedMs);
+          return;
+        }
+
+        // Altrimenti riproduci sul PC con la voce ElevenLabs specifica dell'Agente (es. Liam per Spielberg, George per Italo, Aida per Samantha)
+        await speakTextWithElevenLabs({
+          text: cleanSpokenReply,
+          voiceId,
+          apiKey: elevenLabsApiKeyRef.current,
+          speed: currentBot?.speed || 1.02,
+          onStart: () => {
+            if (isMountedRef.current) setCallState('speaking');
+          },
+          onEnd: () => {
+            stopBargeInMonitor();
+            // Pausa anti-eco di 350ms prima di riaprire il microfono
+            setTimeout(() => {
+              if (isMountedRef.current) {
+                startListeningTurn();
+              }
+            }, 350);
+          },
+          onError: () => {
+            stopBargeInMonitor();
+            if (isMountedRef.current) {
+              startListeningTurn();
+            }
+          },
+        });
+      } catch (err) {
+        stopBargeInMonitor();
+        if (!isMountedRef.current) return;
+        setErrorBanner(err.message || 'Errore durante la chiamata vocale con Gemini');
+        setCallState('idle');
+      }
+    },
+    [startBargeInMonitor, stopBargeInMonitor]
+  );
+
   // Avvia l'ascolto dal microfono con rilevamento automatico del parlato (VAD) + MediaRecorder per Gemini Audio API
   const startListeningTurn = useCallback(async () => {
     if (!isMountedRef.current) return;
+    stopBargeInMonitor();
     setErrorBanner('');
     setLiveTranscript('');
     interimTextRef.current = '';
@@ -121,7 +381,6 @@ export default function VoiceCallModal({
       });
       streamRef.current = stream;
 
-      // Avvia anche Web Speech API in parallelo per mostrare l'anteprima testo live se disponibile
       const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
       if (SpeechRecognition) {
         try {
@@ -173,7 +432,6 @@ export default function VoiceCallModal({
       recorder.start(200);
       setCallState('listening');
 
-      // Analisi livello volume e rilevamento automatico fine frase (1.5s di silenzio dopo aver parlato)
       const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
       audioContextRef.current = audioCtx;
       const source = audioCtx.createMediaStreamSource(stream);
@@ -197,14 +455,13 @@ export default function VoiceCallModal({
         setAudioLevel(norm);
 
         const now = Date.now();
-        if (avg > 14) {
+        if (avg > 15) {
           hasSpokenInTurnRef.current = true;
           silenceStartRef.current = null;
-        } else if (hasSpokenInTurnRef.current && now - turnStartedAt > 1200) {
+        } else if (hasSpokenInTurnRef.current && now - turnStartedAt > 1100) {
           if (!silenceStartRef.current) {
             silenceStartRef.current = now;
-          } else if (now - silenceStartRef.current > 1550) {
-            // Utente ha finito di parlare: invia subito a Gemini!
+          } else if (now - silenceStartRef.current > 1400) {
             finishListeningAndSend();
             return;
           }
@@ -218,121 +475,15 @@ export default function VoiceCallModal({
       setErrorBanner(`Accesso al microfono non riuscito: ${err.message}`);
       setCallState('idle');
     }
-  }, []);
-
-  const finishListeningAndSend = useCallback(() => {
-    if (rafRef.current) cancelAnimationFrame(rafRef.current);
-    try {
-      if (speechRecRef.current) {
-        speechRecRef.current.onend = null;
-        speechRecRef.current.stop();
-      }
-    } catch {}
-    try {
-      if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
-        mediaRecorderRef.current.stop();
-      }
-    } catch {}
-    try {
-      if (streamRef.current) {
-        streamRef.current.getTracks().forEach((t) => t.stop());
-        streamRef.current = null;
-      }
-    } catch {}
-  }, []);
-
-  const processCapturedVoice = async (audioBlob, fallbackText) => {
-    if (!isMountedRef.current) return;
-
-    // Se l'audio è vuoto e non ha parlato, riapri l'ascolto
-    if (audioBlob.size < 1200 && !fallbackText) {
-      startListeningTurn();
-      return;
-    }
-
-    setCallState('thinking');
-    sounds.play('tick');
-
-    try {
-      const base64Audio = await blobToBase64(audioBlob);
-      const { transcript, reply } = await sendVoiceAudioToGemini({
-        apiKey: geminiApiKey,
-        audioBase64: base64Audio,
-        mimeType: audioBlob.type || 'audio/webm',
-        spokenTextFallback: fallbackText,
-        messages,
-        personaId: activeBot?.id || 'capo-bot',
-        customSystemInstruction: activeBot?.systemInstruction || '',
-      });
-
-      if (!isMountedRef.current) return;
-
-      const cleanTranscript = (transcript || fallbackText || '').trim();
-      if (!cleanTranscript || cleanTranscript === '...') {
-        startListeningTurn();
-        return;
-      }
-
-      setLiveTranscript(cleanTranscript);
-
-      // Puliamo eventuali tag tecnici dalla risposta parlata
-      const cleanSpokenReply = (reply || '')
-        .replace(/<<<TV_COMMAND:[\s\S]*?>>>/g, '')
-        .replace(/<<<CREATE_BOT:[\s\S]*?>>>/g, '')
-        .trim();
-
-      setBotReplyText(cleanSpokenReply);
-      setCallState('speaking');
-
-      // Notifichiamo App.jsx per salvare il turno nella chat ed eseguire eventuali <<<TV_COMMAND>>> o <<<CREATE_BOT>>>
-      if (onVoiceTurnCompleted) {
-        onVoiceTurnCompleted(cleanTranscript, reply);
-      }
-
-      // Se l'interruttore "Parla anche su TV" è attivo e non c'era già un TV_COMMAND, facciamo parlare Capo Bot anche sul TV!
-      if (speakOnTvToo && !String(reply).includes('<<<TV_COMMAND:')) {
-        fetch('/api/tv/command', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ type: 'Capo Bot_speak', text: cleanSpokenReply }),
-        }).catch(() => {});
-      }
-
-      const voiceId = activeBot?.voiceId || 'CiwzbDpaN3pQXjTgx3ML';
-
-      await speakTextWithElevenLabs({
-        text: cleanSpokenReply,
-        voiceId,
-        apiKey: elevenLabsApiKey,
-        speed: activeBot?.speed || 1.02,
-        onStart: () => {
-          if (isMountedRef.current) setCallState('speaking');
-        },
-        onEnd: () => {
-          // Appena finisce di parlare, riapre automaticamente il microfono per continuare la conversazione!
-          if (isMountedRef.current) {
-            startListeningTurn();
-          }
-        },
-        onError: () => {
-          if (isMountedRef.current) {
-            startListeningTurn();
-          }
-        },
-      });
-    } catch (err) {
-      if (!isMountedRef.current) return;
-      setErrorBanner(err.message || 'Errore durante la chiamata vocale con Gemini');
-      setCallState('idle');
-    }
-  };
+  }, [finishListeningAndSend, processCapturedVoice, stopBargeInMonitor]);
 
   useEffect(() => {
     if (isOpen) {
       isMountedRef.current = true;
       sounds.play('open');
+      setLiveTranscript('');
       setBotReplyText(
-        `Ciao, sono ${activeBot?.name || 'capo-bot'}. Ti ascolto, parlami pure liberamente!`
+        `Ciao Dion, sono ${activeBot?.name || 'Samantha'} (${activeBot?.subtitle || 'Agente'}). Ti ascolto, parlami pure!`
       );
       startListeningTurn();
     } else {
@@ -347,14 +498,15 @@ export default function VoiceCallModal({
       cleanupRecording();
       stopCurrentSpeech();
     };
-  }, [isOpen, activeBot?.id, cleanupRecording, startListeningTurn]);
+  }, [isOpen, activeBot?.id]);
 
   if (!isOpen) return null;
+
+  const botColor = activeBot?.color || '#FF309B';
 
   const handleToggleMuteOrSend = () => {
     sounds.play('tick');
     if (callState === 'listening') {
-      // Se ha già iniziato a parlare, cliccare invia subito la frase a Gemini!
       if (hasSpokenInTurnRef.current || liveTranscript) {
         finishListeningAndSend();
       } else {
@@ -362,9 +514,8 @@ export default function VoiceCallModal({
         setCallState('muted');
       }
     } else if (callState === 'speaking') {
-      // Interrompi la voce del bot e passa subito all'ascolto (barge-in!)
-      stopCurrentSpeech();
-      startListeningTurn();
+      // Barge-In immediato: zittisce il bot (PC + TV) e ascolta subito Dion!
+      interruptBotSpeechAndListen();
     } else {
       startListeningTurn();
     }
@@ -384,21 +535,21 @@ export default function VoiceCallModal({
           exit={{ scale: 0.92, opacity: 0, y: 20 }}
           className="relative w-full max-w-md bg-gradient-to-b from-[#171920] to-[#0f1116] border border-white/10 rounded-3xl p-7 shadow-2xl flex flex-col items-center text-center text-white overflow-hidden"
         >
-          {/* Glow di sfondo dinamico */}
+          {/* Glow di sfondo dinamico col colore dell'Agente attivo */}
           <div
             className="absolute -top-24 w-72 h-72 rounded-full blur-3xl opacity-25 pointer-events-none transition-all duration-500"
             style={{
               backgroundColor:
                 callState === 'speaking'
-                  ? '#FF309B'
+                  ? botColor
                   : callState === 'listening'
                   ? '#00C972'
-                  : '#1084FE',
+                  : botColor,
               transform: `scale(${1 + audioLevel * 0.6})`,
             }}
           />
 
-          {/* Top Bar: Stato Chiamata + Timer + Switch Audio TV */}
+          {/* Top Bar: Stato Chiamata + Timer + Switch Audio TV Reale */}
           <div className="w-full flex items-center justify-between text-xs text-gray-400 mb-6 z-10">
             <div className="flex items-center gap-2 bg-white/5 px-3 py-1 rounded-full border border-white/10">
               <span
@@ -418,22 +569,34 @@ export default function VoiceCallModal({
             <button
               onClick={() => {
                 sounds.play('tick');
-                setSpeakOnTvToo(!speakOnTvToo);
+                const nextVal = !speakOnTvToo;
+                setSpeakOnTvToo(nextVal);
+                speakOnTvTooRef.current = nextVal;
               }}
               className={`px-3 py-1 rounded-full text-[11px] font-semibold border flex items-center gap-1.5 transition-all cursor-pointer ${
                 speakOnTvToo
-                  ? 'bg-pink-500/20 text-pink-300 border-pink-500/40'
+                  ? 'bg-pink-500/20 text-pink-300 border-pink-500/40 shadow-sm'
                   : 'bg-white/5 text-gray-400 border-white/10 hover:text-white'
               }`}
-              title="Fai uscire la voce di Capo Bot anche dagli altoparlanti della Smart TV"
+              title={`Fai uscire la voce di ${activeBot?.name} direttamente dagli altoparlanti della Smart TV (172.20.10.3)`}
             >
               <Tv size={12} />
               <span>{speakOnTvToo ? 'Voce su TV: ON' : 'Voce su TV: OFF'}</span>
             </button>
           </div>
 
-          {/* Avatar Gigante del Bot con anello pulsante a tempo di voce */}
-          <div className="relative my-4 flex items-center justify-center z-10">
+          {/* Avatar Gigante del Bot (cliccabile per interrompere e parlare subito!) */}
+          <div
+            onClick={() => {
+              if (callState === 'speaking') interruptBotSpeechAndListen();
+            }}
+            className="relative my-4 flex items-center justify-center z-10 cursor-pointer"
+            title={
+              callState === 'speaking'
+                ? 'Clicca (o inizia a parlare) per interrompere e prendere la parola'
+                : ''
+            }
+          >
             <motion.div
               animate={{
                 scale:
@@ -448,7 +611,8 @@ export default function VoiceCallModal({
                   ? { repeat: Infinity, duration: 1.1 }
                   : { duration: 0.1 }
               }
-              className="absolute w-32 h-32 rounded-full border-2 border-white/15 pointer-events-none"
+              className="absolute w-32 h-32 rounded-full border-2 pointer-events-none"
+              style={{ borderColor: `${botColor}55` }}
             />
             <div className="scale-150 transform p-4">
               <BotAvatar
@@ -466,27 +630,33 @@ export default function VoiceCallModal({
           </div>
 
           <h2 className="text-xl font-bold tracking-tight mt-3 z-10">
-            {activeBot?.name || 'capo-bot'}
+            {activeBot?.name || 'Samantha'}
           </h2>
-          <p className="text-xs font-medium text-pink-400 mt-0.5 z-10">
+          <p className="text-[11px] text-gray-400 z-10">{activeBot?.subtitle}</p>
+          <p
+            className="text-xs font-semibold mt-1 z-10"
+            style={{ color: callState === 'listening' ? '#34D399' : botColor }}
+          >
             {callState === 'listening'
               ? 'Ti sta ascoltando... (parla pure, invio automatico a fine frase)'
               : callState === 'thinking'
-              ? 'Elaborazione con Gemini Live...'
+              ? `${activeBot?.name} sta pensando...`
               : callState === 'speaking'
-              ? 'Sta parlando con voce ElevenLabs...'
+              ? speakOnTvToo
+                ? `Sta parlando sulla Smart TV (inizia a parlare per interromperlo)...`
+                : `Sta parlando con voce ${activeBot?.voice?.split(' ')[0] || 'ElevenLabs'} (parla per interrompere)...`
               : 'Microfono in pausa'}
           </p>
 
-          {/* Trascrizione Live di Utente & Sottotitoli Risposta di Capo Bot */}
-          <div className="w-full min-h-[115px] mt-5 bg-white/5 border border-white/10 rounded-2xl p-4 flex flex-col justify-center gap-2 text-left z-10">
+          {/* Trascrizione Live di Dion & Sottotitoli Risposta dell'Agente */}
+          <div className="w-full min-h-[115px] mt-4 bg-white/5 border border-white/10 rounded-2xl p-4 flex flex-col justify-center gap-2 text-left z-10">
             {liveTranscript && (
-              <div className="text-xs text-emerald-300">
-                <span className="font-bold text-emerald-400">Tu: </span>«{liveTranscript}»
+              <div className="text-xs" style={{ color: botColor }}>
+                <span className="font-bold">Tu: </span>«{liveTranscript}»
               </div>
             )}
             <div className="text-xs text-gray-200 leading-relaxed line-clamp-4">
-              {botReplyText || 'Parla al microfono per dialogare a voce con ' + activeBot?.name}
+              {botReplyText || `Parla al microfono per dialogare a voce con ${activeBot?.name}`}
             </div>
           </div>
 
@@ -501,18 +671,20 @@ export default function VoiceCallModal({
             {/* Tasto Microfono / Invia subito / Interrompi */}
             <button
               onClick={handleToggleMuteOrSend}
-              className={`w-14 h-14 rounded-full flex items-center justify-center transition-all shadow-lg cursor-pointer ${
-                callState === 'listening'
-                  ? 'bg-emerald-500 hover:bg-emerald-400 text-black'
-                  : callState === 'speaking'
-                  ? 'bg-amber-500 hover:bg-amber-400 text-black'
-                  : 'bg-white/10 hover:bg-white/20 text-white'
-              }`}
+              className="w-14 h-14 rounded-full flex items-center justify-center transition-all shadow-lg cursor-pointer text-white"
+              style={{
+                backgroundColor:
+                  callState === 'listening'
+                    ? botColor
+                    : callState === 'speaking'
+                    ? '#F59E0B'
+                    : 'rgba(255,255,255,0.12)',
+              }}
               title={
                 callState === 'listening'
                   ? 'Clicca per inviare subito la frase o mettere in muto'
                   : callState === 'speaking'
-                  ? 'Interrompi e parla subito'
+                  ? 'Interrompi subito e parla'
                   : 'Riattiva microfono'
               }
             >
@@ -529,6 +701,13 @@ export default function VoiceCallModal({
             <button
               onClick={() => {
                 sounds.play('tick');
+                if (speakOnTvTooRef.current) {
+                  fetch('/api/tv/command', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ type: 'stop_speak' }),
+                  }).catch(() => {});
+                }
                 onClose();
               }}
               className="w-14 h-14 rounded-full bg-red-600 hover:bg-red-500 text-white flex items-center justify-center shadow-lg transition-all cursor-pointer"
@@ -542,4 +721,3 @@ export default function VoiceCallModal({
     </AnimatePresence>
   );
 }
-
