@@ -1,0 +1,22 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Build output
+dist/
+release/
+
+# Local Environment & Secrets (NEVER commit personal keys or vault)
+.env
+.env.local
+.env.*.local
+workspaces/_vault.json
+workspaces/*/
+
+# Logs & OS files
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.DS_Store
+Thumbs.db
