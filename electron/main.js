@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, Tray, Menu, globalShortcut, nativeImage } from 'electron';
+import { app, BrowserWindow, ipcMain, Tray, Menu, globalShortcut, nativeImage, session } from 'electron';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
@@ -71,6 +71,7 @@ function createWindow() {
       nodeIntegration: false,
       contextIsolation: true,
       spellcheck: false,
+      webviewTag: true,
     },
   });
 
@@ -145,6 +146,18 @@ function createTray() {
 }
 
 app.whenReady().then(() => {
+  // Rimuove X-Frame-Options e CSP restrittivi sui frame interni così il Browser Chrome dentro il Desktop Virtuale può caricare Google, YouTube, Wikipedia e qualsiasi sito reale senza blocchi!
+  session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
+    const responseHeaders = { ...(details.responseHeaders || {}) };
+    for (const key of Object.keys(responseHeaders)) {
+      const lower = key.toLowerCase();
+      if (lower === 'x-frame-options' || lower === 'content-security-policy') {
+        delete responseHeaders[key];
+      }
+    }
+    callback({ cancel: false, responseHeaders });
+  });
+
   createWindow();
   createTray();
 

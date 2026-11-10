@@ -1,7 +1,10 @@
-﻿import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   X,
+  Minus,
+  Square as MaximizeIcon,
+  Minimize2,
   Terminal,
   Globe,
   Folder,
@@ -16,6 +19,8 @@ import {
   Power,
   Home,
   ArrowLeft,
+  ArrowRight,
+  RotateCw,
   ChevronUp,
   ChevronDown,
   ChevronLeft,
@@ -28,6 +33,8 @@ import {
   Trash2,
   Search,
   Newspaper,
+  Sparkles,
+  KeyRound,
 } from 'lucide-react';
 import { sounds } from '../services/soundEffects';
 
@@ -45,24 +52,50 @@ const QUICK_TV_APPS = [
 export default function VirtualComputerModal({
   isOpen,
   onClose,
-  botId = 'capo-bot',
-  botName = 'capo-bot',
+  botId = 'samantha',
+  botName = 'Samantha',
   initialTab = null,
   initialFileToOpen = null,
   onFilesUpdated,
 }) {
-  const [mode, setMode] = useState('controllo');
-  const [activeApp, setActiveApp] = useState('tv'); // 'tv' | 'terminal' | 'browser' | 'files'
+  // Stato connessione iniziale ("Connessione in corso" identica a Screenshot 2)
+  const [isConnecting, setIsConnecting] = useState(true);
+  // Controllo desktop ("Visualizzazione | Prendi il controllo" <-> "Hai il controllo | Interrompi")
+  const [hasControl, setHasControl] = useState(false);
+  // Finestra attualmente aperta sul Desktop Linux ('none' = mostra lo sfondo grigio di Screenshot 3, 'chrome' = Screenshot 4, 'files', 'terminal', 'tv')
+  const [openWindow, setOpenWindow] = useState('none');
+  const [isWindowMaximized, setIsWindowMaximized] = useState(true);
+  // Orologio live nella taskbar tint2 in basso a destra ("Wed Nov 11  12:24 AM")
+  const [clockText, setClockText] = useState('');
+
+  // Schede vere di Google Chrome
+  const [chromeTabs, setChromeTabs] = useState([
+    {
+      id: 'tab-1',
+      title: 'New Tab',
+      url: 'google://newtab',
+      inputUrl: '',
+    },
+  ]);
+  const [activeTabId, setActiveTabId] = useState('tab-1');
+  const [googleSearchQuery, setGoogleSearchQuery] = useState('');
+  const [webFallbackHtml, setWebFallbackHtml] = useState('');
+  const [isLoadingWeb, setIsLoadingWeb] = useState(false);
+  const webviewRef = useRef(null);
+
+  const isElectron =
+    typeof window !== 'undefined' &&
+    Boolean(window.botParkAPI || navigator.userAgent.toLowerCase().includes('electron'));
 
   // 1. Stato Terminale Reale
   const [terminalHistory, setTerminalHistory] = useState([
-    { type: 'output', text: `Windows / Node v22.17.0 — Workspace reale per ${botName}` },
-    { type: 'success', text: `✔ Terminale collegato a: workspaces/${botId}` },
+    { type: 'output', text: `Linux sand-box 6.6.87-x86_64 — Workspace per ${botName} (${botId})` },
+    { type: 'success', text: `✔ Connesso al filesystem locale: workspaces/${botId}` },
   ]);
   const [cmdInput, setCmdInput] = useState('');
   const [isRunningCmd, setIsRunningCmd] = useState(false);
 
-  // 2. Stato File Manager Reale su Disco
+  // 2. Stato File Manager Reale su Disco (pcmanfm)
   const [workspaceFiles, setWorkspaceFiles] = useState([]);
   const [workspacePath, setWorkspacePath] = useState('');
   const [selectedFile, setSelectedFile] = useState(null);
@@ -70,16 +103,10 @@ export default function VirtualComputerModal({
   const [fileSavedMsg, setFileSavedMsg] = useState('');
   const [newFileName, setNewFileName] = useState('');
 
-  // 3. Stato Browser Web & Briefing Live
-  const [browserUrl, setBrowserUrl] = useState('https://news.google.com');
-  const [browserTitle, setBrowserTitle] = useState('Briefing Meteo Torino & Top News Live');
-  const [browserContent, setBrowserContent] = useState('');
-  const [isLoadingWeb, setIsLoadingWeb] = useState(false);
-
-  // 4. Stato Android TV Reale
+  // 3. Stato Android TV Reale
   const [tvStatus, setTvStatus] = useState({
     connected: false,
-    serial: '192.168.1.100:5555',
+    serial: '172.20.10.3:5555',
     currentApp: 'Verifica connessione...',
     history: [],
   });
@@ -89,6 +116,26 @@ export default function VirtualComputerModal({
   const [tvQueryInput, setTvQueryInput] = useState('');
   const [tvCommandStatus, setTvCommandStatus] = useState('');
   const [isSendingTvCmd, setIsSendingTvCmd] = useState(false);
+
+  // Orologio in stile tint2 ("Wed Nov 11  12:24 AM")
+  useEffect(() => {
+    const updateClock = () => {
+      const now = new Date();
+      const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+      const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      const dayName = days[now.getDay()];
+      const monthName = months[now.getMonth()];
+      const dayNum = now.getDate();
+      let hours = now.getHours();
+      const minutes = String(now.getMinutes()).padStart(2, '0');
+      const ampm = hours >= 12 ? 'PM' : 'AM';
+      hours = hours % 12 || 12;
+      setClockText(`${dayName} ${monthName} ${dayNum}  ${hours}:${minutes} ${ampm}`);
+    };
+    updateClock();
+    const t = setInterval(updateClock, 10000);
+    return () => clearInterval(t);
+  }, []);
 
   // Carica i veri file dal disco per il bot corrente
   const loadWorkspaceFiles = useCallback(async () => {
@@ -113,21 +160,37 @@ export default function VirtualComputerModal({
         if (data && data.ok) {
           setSelectedFile(data.name);
           setFileContent(data.content || '');
-          setActiveApp('files');
+          setOpenWindow('files');
+          setHasControl(true);
         }
       } catch {}
     },
     [botId]
   );
 
+  // Effetto "Connessione in corso" all'apertura come nello Screenshot 2
   useEffect(() => {
     if (!isOpen) return;
+    setIsConnecting(true);
     loadWorkspaceFiles();
-    if (initialFileToOpen) {
-      openDiskFile(initialFileToOpen);
-    } else if (initialTab) {
-      setActiveApp(initialTab);
-    }
+
+    const timer = setTimeout(() => {
+      setIsConnecting(false);
+      if (initialFileToOpen) {
+        openDiskFile(initialFileToOpen);
+      } else if (initialTab === 'files') {
+        setOpenWindow('files');
+      } else if (initialTab === 'terminal') {
+        setOpenWindow('terminal');
+      } else if (initialTab === 'browser') {
+        setOpenWindow('chrome');
+      } else {
+        // Parte mostrando il Desktop pulito (Screenshot 3) o Chrome se già aperto
+        setOpenWindow('none');
+      }
+    }, 950);
+
+    return () => clearTimeout(timer);
   }, [isOpen, initialTab, initialFileToOpen, loadWorkspaceFiles, openDiskFile]);
 
   const fetchTvStatusAndScreen = useCallback(async (withScreen = true) => {
@@ -153,40 +216,102 @@ export default function VirtualComputerModal({
   }, []);
 
   useEffect(() => {
-    if (!isOpen || activeApp !== 'tv') return;
+    if (!isOpen || openWindow !== 'tv') return;
     fetchTvStatusAndScreen(true);
-
     if (!autoRefreshTv) return;
     const interval = setInterval(() => {
       fetchTvStatusAndScreen(true);
     }, 4500);
     return () => clearInterval(interval);
-  }, [isOpen, activeApp, autoRefreshTv, fetchTvStatusAndScreen]);
-
-  // Carica il Briefing Live quando si apre il Browser per la prima volta
-  const loadLiveBriefing = useCallback(async () => {
-    setIsLoadingWeb(true);
-    try {
-      const res = await fetch('/api/web/briefing');
-      const data = await res.json();
-      if (data && data.ok) {
-        setBrowserTitle('Briefing Tempo Reale — Meteo Torino & Google News Italia');
-        setBrowserContent(data.combined || 'Nessun dato ricevuto.');
-      }
-    } catch (e) {
-      setBrowserContent(`Errore caricamento briefing: ${e.message}`);
-    } finally {
-      setIsLoadingWeb(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (isOpen && activeApp === 'browser' && !browserContent) {
-      loadLiveBriefing();
-    }
-  }, [isOpen, activeApp, browserContent, loadLiveBriefing]);
+  }, [isOpen, openWindow, autoRefreshTv, fetchTvStatusAndScreen]);
 
   if (!isOpen) return null;
+
+  const activeChromeTab =
+    chromeTabs.find((t) => t.id === activeTabId) || chromeTabs[0];
+
+  const updateActiveChromeTab = (patch) => {
+    setChromeTabs((prev) =>
+      prev.map((t) => (t.id === activeChromeTab.id ? { ...t, ...patch } : t))
+    );
+  };
+
+  const navigateChromeTo = async (rawTarget) => {
+    const trimmed = String(rawTarget || '').trim();
+    if (!trimmed) return;
+
+    let finalUrl = trimmed;
+    let title = trimmed;
+    if (trimmed === 'google://newtab') {
+      updateActiveChromeTab({ url: 'google://newtab', inputUrl: '', title: 'New Tab' });
+      return;
+    }
+
+    if (
+      !trimmed.startsWith('http://') &&
+      !trimmed.startsWith('https://') &&
+      (trimmed.includes(' ') || !trimmed.includes('.'))
+    ) {
+      finalUrl = `https://www.google.com/search?igu=1&q=${encodeURIComponent(trimmed)}`;
+      title = `${trimmed} - Google Search`;
+    } else if (!trimmed.startsWith('http://') && !trimmed.startsWith('https://')) {
+      finalUrl = `https://${trimmed}`;
+      title = trimmed;
+    } else {
+      try {
+        title = new URL(finalUrl).hostname.replace('www.', '');
+      } catch {
+        title = finalUrl;
+      }
+    }
+
+    updateActiveChromeTab({
+      url: finalUrl,
+      inputUrl: finalUrl,
+      title,
+    });
+
+    if (!isElectron) {
+      setIsLoadingWeb(true);
+      try {
+        const res = await fetch('/api/web/fetch', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url: finalUrl }),
+        });
+        const data = await res.json();
+        if (data && data.ok) {
+          updateActiveChromeTab({ title: data.title || title });
+          setWebFallbackHtml(data.excerpt || '');
+        }
+      } catch {}
+      setIsLoadingWeb(false);
+    }
+  };
+
+  const handleAddChromeTab = () => {
+    sounds.play('tick');
+    const newId = `tab-${Date.now()}`;
+    setChromeTabs((prev) => [
+      ...prev,
+      { id: newId, title: 'New Tab', url: 'google://newtab', inputUrl: '' },
+    ]);
+    setActiveTabId(newId);
+  };
+
+  const handleCloseChromeTab = (idToClose, e) => {
+    e.stopPropagation();
+    sounds.play('tick');
+    if (chromeTabs.length === 1) {
+      setOpenWindow('none');
+      return;
+    }
+    const remaining = chromeTabs.filter((t) => t.id !== idToClose);
+    setChromeTabs(remaining);
+    if (activeTabId === idToClose) {
+      setActiveTabId(remaining[remaining.length - 1].id);
+    }
+  };
 
   // Esecuzione comando reale sul Terminale
   const handleCommand = async (e) => {
@@ -204,7 +329,7 @@ export default function VirtualComputerModal({
 
     setTerminalHistory((prev) => [
       ...prev,
-      { type: 'prompt', text: `${botId}@bot-park:~$ ${cmd}` },
+      { type: 'prompt', text: `${botId}@sand-box:~$ ${cmd}` },
     ]);
     setIsRunningCmd(true);
 
@@ -289,38 +414,11 @@ export default function VirtualComputerModal({
     loadWorkspaceFiles();
   };
 
-  // Navigazione Web Reale
-  const handleBrowserFetch = async (e) => {
-    e.preventDefault();
-    let target = browserUrl.trim();
-    if (!target) return;
-    if (!target.startsWith('http://') && !target.startsWith('https://')) {
-      target = `https://${target}`;
-      setBrowserUrl(target);
-    }
-    setIsLoadingWeb(true);
-    try {
-      const res = await fetch('/api/web/fetch', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: target }),
-      });
-      const data = await res.json();
-      if (data && data.ok) {
-        setBrowserTitle(data.title || target);
-        setBrowserContent(data.content || 'Pagina letta.');
-      }
-    } catch (err) {
-      setBrowserContent(`Errore apertura URL: ${err.message}`);
-    } finally {
-      setIsLoadingWeb(false);
-    }
-  };
-
-  const sendTvCommand = async (payload, label = '') => {
+  // Comandi Smart TV
+  const sendTvCommand = async (payload, label = 'Comando inviato') => {
     sounds.play('tick');
     setIsSendingTvCmd(true);
-    if (label) setTvCommandStatus(`Invio a TV: ${label}...`);
+    setTvCommandStatus(`Invio: ${label}...`);
     try {
       const res = await fetch('/api/tv/command', {
         method: 'POST',
@@ -328,603 +426,803 @@ export default function VirtualComputerModal({
         body: JSON.stringify(payload),
       });
       const data = await res.json();
-      if (data.ok) {
-        if (data.tvReply) {
-          setTvCommandStatus(`Assistente TV: «${data.tvReply}»`);
-        } else {
-          setTvCommandStatus(`✔ Eseguito sulla TV: ${label || payload.type}`);
-        }
-        setTimeout(() => fetchTvStatusAndScreen(true), 800);
+      if (data && data.ok) {
+        setTvCommandStatus(`✔ ${data.detail || label}`);
+        setTimeout(() => fetchTvStatusAndScreen(true), 900);
       } else {
-        setTvCommandStatus(`⚠ Errore TV: ${data.error || 'Comando fallito'}`);
+        setTvCommandStatus(`⚠️ Errore: ${data?.error || 'TV non raggiungibile'}`);
       }
-    } catch (err) {
-      setTvCommandStatus(`⚠ Errore comunicazione TV: ${err.message}`);
+    } catch (e) {
+      setTvCommandStatus(`⚠️ Errore rete: ${e.message}`);
     } finally {
       setIsSendingTvCmd(false);
     }
   };
 
-  const handleSendCapo BotTvQuery = async (e) => {
+  const handleTvQuerySubmit = (e) => {
     e.preventDefault();
     const q = tvQueryInput.trim();
-    if (!q || isSendingTvCmd) return;
+    if (!q) return;
+    sendTvCommand({ type: 'youtube_search', query: q }, `Cerca "${q}" su TV`);
     setTvQueryInput('');
-    await sendTvCommand({ type: 'Capo Bot_query', text: q }, `Ordine a Capo Bot ("${q}")`);
+  };
+
+  const handleSamanthaSpeakOnTv = () => {
+    const q = tvQueryInput.trim();
+    if (!q) return;
+    sendTvCommand(
+      { type: 'samantha_speak', text: q, botName },
+      `Fai dire a ${botName} sulla TV`
+    );
+    setTvQueryInput('');
   };
 
   return (
-    <AnimatePresence>
-      <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        exit={{ opacity: 0 }}
-        className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 md:p-6 select-none"
-      >
-        <motion.div
-          initial={{ scale: 0.95, opacity: 0, y: 15 }}
-          animate={{ scale: 1, opacity: 1, y: 0 }}
-          exit={{ scale: 0.95, opacity: 0, y: 15 }}
-          className="relative w-full max-w-6xl h-[88vh] bg-[#0d0f12] rounded-2xl overflow-hidden shadow-2xl border border-white/10 flex flex-col"
-        >
-          {/* 1. Barra del Titolo */}
-          <div className="h-11 bg-[#16191f] border-b border-white/5 px-4 flex items-center justify-between text-xs text-gray-400">
-            <div className="flex items-center gap-2.5">
-              <span
-                className={`w-2.5 h-2.5 rounded-full ${
-                  tvStatus.connected ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500'
-                }`}
-              />
-              <span className="font-semibold text-gray-200">
-                Computer Reale & Bridge Salotto • {botName}
-              </span>
-              <span className="text-[10px] text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-full font-mono">
-                TV {tvStatus.serial} • {tvStatus.currentApp}
+    <div className="fixed inset-0 bg-[#141415] z-50 flex flex-col items-center justify-between p-4 select-none font-['Plus_Jakarta_Sans',sans-serif]">
+      {/* 1. Barra Superiore Minimale Identica a Screenshot 3 & 4 (solo le icone Riduci / Ingrandisci / Chiudi in alto a destra) */}
+      <div className="w-full flex items-center justify-between px-2 h-7 shrink-0">
+        <div className="text-[11px] text-white/40 font-medium flex items-center gap-2">
+          <span>Computer di {botName}</span>
+        </div>
+        <div className="flex items-center gap-3 text-white/60">
+          <button
+            onClick={() => {
+              sounds.play('tick');
+              onClose();
+            }}
+            className="hover:text-white transition-colors cursor-pointer p-1"
+            title="Riduci e torna alla chat"
+          >
+            <Minimize2 size={14} />
+          </button>
+          <button
+            onClick={() => {
+              sounds.play('tick');
+              setIsWindowMaximized((v) => !v);
+            }}
+            className="hover:text-white transition-colors cursor-pointer p-1"
+            title="Ingrandisci"
+          >
+            <MaximizeIcon size={13} />
+          </button>
+          <button
+            onClick={() => {
+              sounds.play('close');
+              onClose();
+            }}
+            className="hover:text-white transition-colors cursor-pointer p-1"
+            title="Chiudi"
+          >
+            <X size={16} />
+          </button>
+        </div>
+      </div>
+
+      {/* 2. Cornice Principale del Monitor Remoto noVNC (16:10 centrato come negli Screenshot 2, 3 e 4) */}
+      <div className="flex-1 w-full max-w-[1160px] my-1 flex items-center justify-center overflow-hidden">
+        <div className="w-full h-full max-h-[720px] rounded-xl overflow-hidden border border-white/[0.08] bg-[#1e1e20] shadow-[0_25px_90px_rgba(0,0,0,0.65)] flex flex-col relative">
+          {/* STATO A: Connessione in corso (Identico a Screenshot 2) */}
+          {isConnecting ? (
+            <div className="flex-1 w-full h-full bg-[#1e1e20] flex flex-col items-center justify-center gap-3">
+              <div className="flex items-center gap-2">
+                <motion.span
+                  animate={{ opacity: [0.3, 1, 0.3], scale: [0.85, 1.1, 0.85] }}
+                  transition={{ repeat: Infinity, duration: 1.2 }}
+                  className="w-1.5 h-1.5 rounded-full bg-white"
+                />
+                <motion.div
+                  animate={{ y: [0, -4, 0] }}
+                  transition={{ repeat: Infinity, duration: 1.1 }}
+                  className="w-3.5 h-3.5 rounded-t-full rounded-b-sm bg-white flex items-center justify-center gap-0.5"
+                >
+                  <span className="w-0.5 h-1 bg-[#1e1e20] rounded-full" />
+                  <span className="w-0.5 h-1 bg-[#1e1e20] rounded-full" />
+                </motion.div>
+                <motion.span
+                  animate={{ opacity: [0.3, 1, 0.3], scale: [0.85, 1.1, 0.85] }}
+                  transition={{ repeat: Infinity, duration: 1.2, delay: 0.4 }}
+                  className="w-1.5 h-1.5 rounded-full bg-white"
+                />
+              </div>
+              <span className="text-[12px] text-white/45 font-medium tracking-tight">
+                Connessione in corso
               </span>
             </div>
+          ) : (
+            <>
+              {/* STATO B: Vero Desktop Linux X11 + Wallpaper Onda Monocromatica (Identico a Screenshot 3) */}
+              <div
+                onClick={() => {
+                  if (!hasControl) {
+                    sounds.play('tick');
+                    setHasControl(true);
+                  }
+                }}
+                className="flex-1 w-full relative overflow-hidden flex flex-col"
+                style={{
+                  background:
+                    'radial-gradient(125% 95% at 15% 10%, #cfcfd2 0%, #8e8f94 38%, #434448 54%, #9c9da1 72%, #595a5e 100%)',
+                }}
+              >
+                {/* Effetto curva diagonale morbida identica allo sfondo Openbox di Grok Bot (Screenshot 3) */}
+                <div
+                  className="absolute inset-0 pointer-events-none"
+                  style={{
+                    background:
+                      'linear-gradient(132deg, rgba(255,255,255,0.28) 0%, rgba(30,30,34,0.68) 46%, rgba(215,215,220,0.45) 54%, rgba(60,60,65,0.45) 100%)',
+                  }}
+                />
 
-            <button
-              onClick={() => {
-                sounds.play('tick');
-                onClose();
-              }}
-              className="p-1.5 rounded-lg hover:bg-white/10 text-gray-400 hover:text-white transition-colors cursor-pointer"
-            >
-              <X size={15} />
-            </button>
-          </div>
-
-          {/* 2. Area di Lavoro Principale */}
-          <div
-            className="flex-1 relative overflow-hidden flex flex-col items-center justify-center p-4"
-            style={{
-              background:
-                'radial-gradient(ellipse at center, #2e3440 0%, #1e222a 60%, #111318 100%)',
-            }}
-          >
-            <div className="w-full h-full max-w-5xl bg-[#181a1f]/95 rounded-xl border border-white/10 shadow-2xl flex flex-col overflow-hidden backdrop-blur-md">
-              {/* Header Finestra App */}
-              <div className="h-9 bg-[#21252b] px-3.5 flex items-center justify-between text-[11px] text-gray-400 border-b border-white/5 shrink-0">
-                <div className="flex items-center gap-2">
-                  <div className="flex items-center gap-1.5">
-                    <span className="w-2.5 h-2.5 rounded-full bg-red-500/80 inline-block" />
-                    <span className="w-2.5 h-2.5 rounded-full bg-yellow-500/80 inline-block" />
-                    <span className="w-2.5 h-2.5 rounded-full bg-green-500/80 inline-block" />
-                  </div>
-                  <span className="ml-2 font-mono text-gray-200 font-semibold">
-                    {activeApp === 'tv'
-                      ? `Capo Bot — Controllo Diretto Smart TV (${tvStatus.serial})`
-                      : activeApp === 'terminal'
-                      ? `Terminale Reale — workspaces/${botId}`
-                      : activeApp === 'browser'
-                      ? 'Browser Web Live & Briefing Meteo/News'
-                      : `File Manager Reale — workspaces/${botId}`}
-                  </span>
-                </div>
-
-                {activeApp === 'tv' && (
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => setAutoRefreshTv(!autoRefreshTv)}
-                      className={`px-2 py-0.5 rounded text-[10px] font-semibold border transition-all cursor-pointer ${
-                        autoRefreshTv
-                          ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
-                          : 'bg-white/5 text-gray-400 border-white/10'
-                      }`}
-                    >
-                      <Radio size={10} className="inline mr-1" />
-                      {autoRefreshTv ? 'Live Stream ON' : 'Live Pausa'}
-                    </button>
-                    <button
-                      onClick={() => fetchTvStatusAndScreen(true)}
-                      className="p-1 rounded bg-white/5 hover:bg-white/10 text-gray-300 cursor-pointer"
-                      title="Aggiorna schermata TV ora"
-                    >
-                      <RefreshCw size={12} className={isLoadingScreen ? 'animate-spin' : ''} />
-                    </button>
-                  </div>
-                )}
-              </div>
-
-              {/* CONTENUTO APP */}
-              {activeApp === 'tv' ? (
-                <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 overflow-hidden">
-                  <div className="lg:col-span-7 p-4 flex flex-col gap-3 border-r border-white/5 overflow-y-auto">
-                    <div className="relative w-full aspect-video bg-black rounded-xl overflow-hidden border border-white/10 shadow-inner flex items-center justify-center">
-                      {screenshotUrl ? (
-                        <img
-                          src={screenshotUrl}
-                          alt="Schermo Android TV Live"
-                          onLoad={() => setIsLoadingScreen(false)}
-                          onError={() => setIsLoadingScreen(false)}
-                          className="w-full h-full object-contain"
-                        />
-                      ) : (
-                        <div className="text-xs text-gray-500 flex flex-col items-center gap-2">
-                          <Tv size={28} className="text-pink-400 animate-pulse" />
-                          <span>Acquisizione schermo Android TV (Android TV)...</span>
-                        </div>
-                      )}
-
-                      <div className="absolute top-2.5 left-2.5 bg-black/75 backdrop-blur-md px-2.5 py-1 rounded-full text-[10px] font-semibold text-white flex items-center gap-1.5 border border-white/10">
-                        <span
-                          className={`w-2 h-2 rounded-full ${
-                            tvStatus.connected ? 'bg-emerald-400 animate-ping' : 'bg-red-400'
-                          }`}
-                        />
-                        <span>{tvStatus.currentApp}</span>
+                {/* FINESTRA 1: VERO GOOGLE CHROME (Identico a Screenshot 4!) */}
+                {openWindow === 'chrome' && (
+                  <div
+                    className={`z-10 flex flex-col bg-white shadow-2xl overflow-hidden transition-all ${
+                      isWindowMaximized
+                        ? 'w-full h-full'
+                        : 'w-[92%] h-[90%] m-auto rounded-lg border border-black/20'
+                    }`}
+                  >
+                    {/* Barra Tab Superiore Azzurra di Google Chrome Linux (Screenshot 4) */}
+                    <div className="h-9 bg-[#d3e3fd] flex items-end px-2 pt-1.5 gap-1 select-none shrink-0 border-b border-[#b8cdf0]">
+                      <div className="w-5 h-5 mb-1 rounded-md hover:bg-black/5 flex items-center justify-center text-gray-600 text-[10px]">
+                        ⌄
                       </div>
-                    </div>
 
-                    <form onSubmit={handleSendCapo BotTvQuery} className="flex gap-2">
-                      <input
-                        type="text"
-                        value={tvQueryInput}
-                        onChange={(e) => setTvQueryInput(e.target.value)}
-                        placeholder="Chiedi a Capo Bot sulla TV (es. 'Metti jazz su YouTube', 'Che tempo fa?', 'Spegni schermo')..."
-                        className="flex-1 bg-[#111318] border border-white/10 rounded-xl px-3.5 py-2 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-pink-500"
-                      />
-                      <button
-                        type="submit"
-                        disabled={isSendingTvCmd}
-                        className="px-3.5 py-2 rounded-xl bg-pink-600 hover:bg-pink-500 disabled:opacity-50 text-white text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer shrink-0"
-                      >
-                        <Send size={13} />
-                        <span>Invia a Assistente TV</span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => sendTvCommand({ type: 'trigger_mic' }, 'Microfono vocale TV')}
-                        className="px-3 py-2 rounded-xl bg-white/10 hover:bg-white/15 text-pink-300 text-xs font-semibold flex items-center gap-1 transition-all cursor-pointer shrink-0"
-                        title="Attiva ascolto microfono su Android TV"
-                      >
-                        <Mic size={14} />
-                      </button>
-                    </form>
-
-                    {tvCommandStatus && (
-                      <div className="px-3 py-2 rounded-lg bg-pink-500/10 border border-pink-500/20 text-[11px] text-pink-200 font-medium">
-                        {tvCommandStatus}
-                      </div>
-                    )}
-
-                    <div className="flex-1 bg-[#111318]/90 rounded-xl border border-white/5 p-3 overflow-y-auto space-y-2 max-h-36">
-                      <div className="text-[10px] font-bold uppercase tracking-wider text-gray-400">
-                        Memoria Live Assistente TV (/sdcard/Jarvis/conversation_memory.json)
-                      </div>
-                      {tvStatus.history && tvStatus.history.length > 0 ? (
-                        tvStatus.history
-                          .slice()
-                          .reverse()
-                          .slice(0, 4)
-                          .map((turn, i) => (
-                            <div key={i} className="text-[11px] border-b border-white/5 pb-1.5">
-                              <div className="text-gray-400">
-                                <span className="text-emerald-400 font-semibold">Utente:</span> {turn.user}
-                              </div>
-                              <div className="text-pink-200">
-                                <span className="text-pink-400 font-semibold">Assistente TV:</span>{' '}
-                                {turn.jarvis}
-                              </div>
-                            </div>
-                          ))
-                      ) : (
-                        <div className="text-[11px] text-gray-500">
-                          Nessuna conversazione recente letta dal TV.
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="lg:col-span-5 p-4 flex flex-col justify-between gap-3 overflow-y-auto bg-[#14171d]">
-                    <div>
-                      <div className="text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-2">
-                        Controlli Rapidi Hardware & Audio
-                      </div>
-                      <div className="grid grid-cols-4 gap-1.5">
-                        <button
-                          onClick={() => sendTvCommand({ type: 'keyevent', key: 'WAKEUP' }, 'Sveglia TV')}
-                          className="p-2 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/30 text-emerald-300 text-[11px] font-semibold flex flex-col items-center gap-1 cursor-pointer"
-                        >
-                          <Power size={14} />
-                          <span>Accendi</span>
-                        </button>
-                        <button
-                          onClick={() => sendTvCommand({ type: 'keyevent', key: 'POWER' }, 'Standby TV')}
-                          className="p-2 rounded-lg bg-red-500/15 hover:bg-red-500/25 border border-red-500/30 text-red-300 text-[11px] font-semibold flex flex-col items-center gap-1 cursor-pointer"
-                        >
-                          <Power size={14} />
-                          <span>Spegni</span>
-                        </button>
-                        <button
-                          onClick={() => sendTvCommand({ type: 'keyevent', key: 'HOME' }, 'Tasto Home')}
-                          className="p-2 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-gray-200 text-[11px] font-semibold flex flex-col items-center gap-1 cursor-pointer"
-                        >
-                          <Home size={14} />
-                          <span>Home</span>
-                        </button>
-                        <button
-                          onClick={() => sendTvCommand({ type: 'keyevent', key: 'BACK' }, 'Tasto Indietro')}
-                          className="p-2 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-gray-200 text-[11px] font-semibold flex flex-col items-center gap-1 cursor-pointer"
-                        >
-                          <ArrowLeft size={14} />
-                          <span>Indietro</span>
-                        </button>
-                      </div>
-                    </div>
-
-                    <div className="flex flex-col items-center my-1">
-                      <div className="grid grid-cols-3 gap-2 w-40">
-                        <div />
-                        <button
-                          onClick={() => sendTvCommand({ type: 'keyevent', key: 'UP' }, 'Freccia Su')}
-                          className="h-10 rounded-xl bg-white/10 hover:bg-white/20 flex items-center justify-center text-white cursor-pointer active:scale-95"
-                        >
-                          <ChevronUp size={18} />
-                        </button>
-                        <div />
-                        <button
-                          onClick={() => sendTvCommand({ type: 'keyevent', key: 'LEFT' }, 'Freccia Sinistra')}
-                          className="h-10 rounded-xl bg-white/10 hover:bg-white/20 flex items-center justify-center text-white cursor-pointer active:scale-95"
-                        >
-                          <ChevronLeft size={18} />
-                        </button>
-                        <button
-                          onClick={() => sendTvCommand({ type: 'keyevent', key: 'CENTER' }, 'OK / Conferma')}
-                          className="h-10 rounded-xl bg-pink-600 hover:bg-pink-500 flex items-center justify-center text-white font-bold text-xs cursor-pointer shadow-lg active:scale-95"
-                        >
-                          OK
-                        </button>
-                        <button
-                          onClick={() => sendTvCommand({ type: 'keyevent', key: 'RIGHT' }, 'Freccia Destra')}
-                          className="h-10 rounded-xl bg-white/10 hover:bg-white/20 flex items-center justify-center text-white cursor-pointer active:scale-95"
-                        >
-                          <ChevronRight size={18} />
-                        </button>
-                        <div />
-                        <button
-                          onClick={() => sendTvCommand({ type: 'keyevent', key: 'DOWN' }, 'Freccia Giù')}
-                          className="h-10 rounded-xl bg-white/10 hover:bg-white/20 flex items-center justify-center text-white cursor-pointer active:scale-95"
-                        >
-                          <ChevronDown size={18} />
-                        </button>
-                        <div />
-                      </div>
-                    </div>
-
-                    <div className="grid grid-cols-4 gap-1.5">
-                      <button
-                        onClick={() => sendTvCommand({ type: 'keyevent', key: 'VOLUME_DOWN' }, 'Volume -')}
-                        className="p-2 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-gray-200 text-[11px] font-semibold flex items-center justify-center gap-1 cursor-pointer"
-                      >
-                        <Volume2 size={13} />
-                        <span>Vol -</span>
-                      </button>
-                      <button
-                        onClick={() => sendTvCommand({ type: 'keyevent', key: 'VOLUME_UP' }, 'Volume +')}
-                        className="p-2 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-gray-200 text-[11px] font-semibold flex items-center justify-center gap-1 cursor-pointer"
-                      >
-                        <Volume2 size={13} />
-                        <span>Vol +</span>
-                      </button>
-                      <button
-                        onClick={() => sendTvCommand({ type: 'keyevent', key: 'MUTE' }, 'Muto')}
-                        className="p-2 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-gray-200 text-[11px] font-semibold flex items-center justify-center gap-1 cursor-pointer"
-                      >
-                        <VolumeX size={13} />
-                        <span>Muto</span>
-                      </button>
-                      <button
-                        onClick={() => sendTvCommand({ type: 'keyevent', key: 'PLAY_PAUSE' }, 'Play/Pausa')}
-                        className="p-2 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-gray-200 text-[11px] font-semibold flex items-center justify-center gap-1 cursor-pointer"
-                      >
-                        <Play size={13} />
-                        <span>Play</span>
-                      </button>
-                    </div>
-
-                    <div>
-                      <div className="text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-2">
-                        Avvia Applicazioni TV con 1 Click
-                      </div>
-                      <div className="grid grid-cols-2 gap-1.5">
-                        {QUICK_TV_APPS.map((app) => (
-                          <button
-                            key={app.id}
-                            onClick={() => sendTvCommand({ type: 'open_app', app: app.id }, `Avvio ${app.label}`)}
-                            className={`px-2.5 py-2 rounded-lg border text-xs font-semibold text-left transition-all hover:brightness-125 cursor-pointer ${app.color}`}
+                      {/* Schede aperte */}
+                      {chromeTabs.map((tab) => {
+                        const isTabActive = tab.id === activeChromeTab.id;
+                        return (
+                          <div
+                            key={tab.id}
+                            onClick={() => setActiveTabId(tab.id)}
+                            className={`group flex items-center gap-2 px-3 py-1.5 rounded-t-lg text-[11.5px] max-w-[200px] min-w-[130px] cursor-pointer transition-colors ${
+                              isTabActive
+                                ? 'bg-white text-gray-900 font-medium shadow-2xs'
+                                : 'bg-[#d3e3fd] hover:bg-[#e1ecfe] text-gray-700'
+                            }`}
                           >
-                            {app.label}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              ) : activeApp === 'terminal' ? (
-                /* TERMINALE REALE */
-                <div className="flex-1 p-4 font-mono text-xs overflow-y-auto space-y-1.5 text-gray-300 flex flex-col">
-                  <div className="flex-1 space-y-1.5 overflow-y-auto">
-                    {terminalHistory.map((line, idx) => (
-                      <div
-                        key={idx}
-                        className={`whitespace-pre-wrap ${
-                          line.type === 'prompt'
-                            ? 'text-cyan-400 font-semibold'
-                            : line.type === 'success'
-                            ? 'text-emerald-400'
-                            : line.type === 'error'
-                            ? 'text-red-400'
-                            : 'text-gray-300'
-                        }`}
-                      >
-                        {line.text}
-                      </div>
-                    ))}
-                  </div>
+                            <Globe size={12} className="text-gray-600 shrink-0" />
+                            <span className="truncate flex-1">{tab.title}</span>
+                            <button
+                              onClick={(e) => handleCloseChromeTab(tab.id, e)}
+                              className="w-4 h-4 rounded-full hover:bg-gray-200 flex items-center justify-center text-gray-500"
+                            >
+                              <X size={10} />
+                            </button>
+                          </div>
+                        );
+                      })}
 
-                  <form onSubmit={handleCommand} className="flex items-center gap-2 pt-3 border-t border-white/10">
-                    <span className="text-cyan-400 font-semibold">{botId}@bot-park:~$</span>
-                    <input
-                      type="text"
-                      value={cmdInput}
-                      onChange={(e) => setCmdInput(e.target.value)}
-                      placeholder="Esegui comando reale (es. dir, node -v, python --version, type file.md)..."
-                      className="flex-1 bg-transparent border-none outline-none text-white font-mono text-xs"
-                      autoFocus
-                    />
-                    <button
-                      type="submit"
-                      disabled={isRunningCmd}
-                      className="px-2.5 py-1 rounded bg-cyan-600/30 text-cyan-300 border border-cyan-500/40 text-[11px] cursor-pointer"
-                    >
-                      {isRunningCmd ? '...' : 'Esegui'}
-                    </button>
-                  </form>
-                </div>
-              ) : activeApp === 'browser' ? (
-                /* BROWSER WEB & BRIEFING LIVE REALE */
-                <div className="flex-1 flex flex-col overflow-hidden">
-                  <div className="p-3 bg-[#14171d] border-b border-white/10 flex items-center gap-2">
-                    <form onSubmit={handleBrowserFetch} className="flex-1 flex items-center gap-2">
-                      <Globe size={15} className="text-cyan-400 shrink-0" />
-                      <input
-                        type="text"
-                        value={browserUrl}
-                        onChange={(e) => setBrowserUrl(e.target.value)}
-                        placeholder="Inserisci un URL o link YouTube da analizzare..."
-                        className="flex-1 bg-[#0d0f12] border border-white/10 rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none focus:border-cyan-500"
-                      />
+                      {/* Pulsante + Nuova Scheda */}
                       <button
-                        type="submit"
-                        disabled={isLoadingWeb}
-                        className="px-3 py-1.5 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-semibold flex items-center gap-1 cursor-pointer"
-                      >
-                        <Search size={12} />
-                        <span>Apri URL</span>
-                      </button>
-                    </form>
-                    <button
-                      onClick={loadLiveBriefing}
-                      className="px-3 py-1.5 rounded-lg bg-emerald-600/20 border border-emerald-500/30 text-emerald-300 text-xs font-semibold flex items-center gap-1.5 cursor-pointer hover:bg-emerald-600/30"
-                    >
-                      <Newspaper size={13} />
-                      <span>Meteo Torino & News Live</span>
-                    </button>
-                  </div>
-
-                  <div className="flex-1 p-5 overflow-y-auto space-y-3 text-gray-200">
-                    <div className="text-sm font-bold text-cyan-300 border-b border-white/10 pb-2">
-                      {browserTitle}
-                    </div>
-                    {isLoadingWeb ? (
-                      <div className="text-xs text-gray-400 animate-pulse py-8 text-center">
-                        Connessione e lettura contenuti live in corso...
-                      </div>
-                    ) : (
-                      <pre className="whitespace-pre-wrap font-sans text-xs leading-relaxed text-gray-300 bg-[#111318] p-4 rounded-xl border border-white/5">
-                        {browserContent}
-                      </pre>
-                    )}
-                  </div>
-                </div>
-              ) : (
-                /* FILE MANAGER REALE SU DISCO + EDITOR INTEGRATO */
-                <div className="flex-1 grid grid-cols-1 md:grid-cols-12 overflow-hidden">
-                  <div className="md:col-span-5 border-r border-white/10 p-4 flex flex-col gap-3 overflow-y-auto bg-[#14171d]">
-                    <div className="text-[11px] font-semibold text-gray-400">
-                      Cartella su disco: <span className="text-amber-400 font-mono">{workspacePath}</span>
-                    </div>
-
-                    <form onSubmit={handleCreateNewFile} className="flex gap-1.5">
-                      <input
-                        type="text"
-                        value={newFileName}
-                        onChange={(e) => setNewFileName(e.target.value)}
-                        placeholder="Nuovo file (es. note.md, script.py)..."
-                        className="flex-1 bg-[#0d0f12] border border-white/10 rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-amber-500"
-                      />
-                      <button
-                        type="submit"
-                        className="px-2.5 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-black font-bold text-xs flex items-center gap-1 cursor-pointer"
+                        onClick={handleAddChromeTab}
+                        className="w-6 h-6 mb-0.5 rounded-full hover:bg-black/10 flex items-center justify-center text-gray-700 cursor-pointer"
+                        title="New Tab"
                       >
                         <Plus size={13} />
-                        <span>Crea</span>
                       </button>
-                    </form>
 
-                    <div className="space-y-1.5 flex-1 overflow-y-auto">
-                      {workspaceFiles.map((f) => (
-                        <div
-                          key={f.name}
-                          onClick={() => openDiskFile(f.name)}
-                          className={`p-2.5 rounded-xl border flex items-center justify-between cursor-pointer transition-all ${
-                            selectedFile === f.name
-                              ? 'bg-amber-500/20 border-amber-500/40 text-white'
-                              : 'bg-white/5 border-white/5 text-gray-300 hover:bg-white/10'
-                          }`}
+                      <div className="flex-1" />
+
+                      {/* Controlli Finestra Chrome Linux in alto a destra (_ □ X) */}
+                      <div className="flex items-center gap-1 mb-1.5 pr-1 text-gray-600">
+                        <button
+                          onClick={() => setOpenWindow('none')}
+                          className="w-6 h-6 rounded hover:bg-black/10 flex items-center justify-center cursor-pointer"
+                          title="Riduci a icona sulla barra"
                         >
-                          <div className="flex items-center gap-2 overflow-hidden">
-                            <FileCode size={16} className="text-amber-400 shrink-0" />
-                            <div className="overflow-hidden">
-                              <div className="text-xs font-semibold truncate">{f.name}</div>
-                              <div className="text-[10px] text-gray-500">
-                                {f.date} • {f.size}
+                          <Minus size={12} />
+                        </button>
+                        <button
+                          onClick={() => setIsWindowMaximized((v) => !v)}
+                          className="w-6 h-6 rounded hover:bg-black/10 flex items-center justify-center cursor-pointer"
+                          title="Ridimensiona"
+                        >
+                          <MaximizeIcon size={10} />
+                        </button>
+                        <button
+                          onClick={() => setOpenWindow('none')}
+                          className="w-6 h-6 rounded hover:bg-red-500 hover:text-white flex items-center justify-center cursor-pointer"
+                          title="Chiudi Chrome"
+                        >
+                          <X size={12} />
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Barra degli Indirizzi di Chrome con pillola "AI Mode" come in Screenshot 4 */}
+                    <div className="h-10 bg-white border-b border-gray-200 flex items-center px-2.5 gap-2 shrink-0">
+                      <button
+                        onClick={() => {
+                          if (webviewRef.current?.canGoBack?.()) {
+                            webviewRef.current.goBack();
+                          } else {
+                            navigateChromeTo('google://newtab');
+                          }
+                        }}
+                        className="p-1.5 rounded-full hover:bg-gray-100 text-gray-600 cursor-pointer"
+                        title="Indietro"
+                      >
+                        <ArrowLeft size={14} />
+                      </button>
+                      <button
+                        onClick={() => webviewRef.current?.goForward?.()}
+                        className="p-1.5 rounded-full hover:bg-gray-100 text-gray-400 cursor-pointer"
+                        title="Avanti"
+                      >
+                        <ArrowRight size={14} />
+                      </button>
+                      <button
+                        onClick={() => {
+                          if (webviewRef.current?.reload) {
+                            webviewRef.current.reload();
+                          } else if (activeChromeTab.url !== 'google://newtab') {
+                            navigateChromeTo(activeChromeTab.url);
+                          }
+                        }}
+                        className="p-1.5 rounded-full hover:bg-gray-100 text-gray-600 cursor-pointer"
+                        title="Ricarica"
+                      >
+                        <RotateCw size={13} />
+                      </button>
+
+                      {/* Omnibox URL */}
+                      <form
+                        onSubmit={(e) => {
+                          e.preventDefault();
+                          navigateChromeTo(activeChromeTab.inputUrl);
+                        }}
+                        className="flex-1 flex items-center bg-[#f1f3f4] focus-within:bg-white focus-within:ring-2 focus-within:ring-[#1a73e8] rounded-full px-3 py-1 gap-2 border border-transparent"
+                      >
+                        <span className="w-4 h-4 rounded-full bg-white flex items-center justify-center text-[10px] font-bold text-[#1a73e8] shadow-2xs">
+                          G
+                        </span>
+                        <input
+                          type="text"
+                          value={activeChromeTab.inputUrl}
+                          onChange={(e) =>
+                            updateActiveChromeTab({ inputUrl: e.target.value })
+                          }
+                          placeholder="Search Google or type a URL"
+                          className="flex-1 bg-transparent text-[12.5px] text-gray-800 focus:outline-none select-text"
+                        />
+                        <button
+                          type="button"
+                          onClick={() =>
+                            navigateChromeTo(
+                              activeChromeTab.inputUrl || 'https://news.google.com'
+                            )
+                          }
+                          className="flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-[#e8f0fe] text-[#1967d2] text-[10.5px] font-semibold hover:bg-[#d2e3fc] cursor-pointer"
+                        >
+                          <Sparkles size={10} />
+                          <span>AI Mode</span>
+                        </button>
+                      </form>
+                    </div>
+
+                    {/* Corpo della Pagina di Google Chrome */}
+                    <div className="flex-1 bg-white relative overflow-hidden flex flex-col">
+                      {activeChromeTab.url === 'google://newtab' ? (
+                        /* Esatta New Tab di Google Chrome come nello Screenshot 4! */
+                        <div className="flex-1 flex flex-col items-center justify-center px-6 relative">
+                          {/* Link in alto a destra Gmail / Images */}
+                          <div className="absolute top-3 right-5 flex items-center gap-4 text-[12px] text-gray-700">
+                            <button
+                              onClick={() => navigateChromeTo('https://mail.google.com')}
+                              className="hover:underline cursor-pointer"
+                            >
+                              Gmail
+                            </button>
+                            <button
+                              onClick={() => navigateChromeTo('https://images.google.com')}
+                              className="hover:underline cursor-pointer"
+                            >
+                              Images
+                            </button>
+                          </div>
+
+                          {/* Logo Google Ufficiale */}
+                          <div className="text-[64px] font-bold tracking-tight mb-6 select-none leading-none">
+                            <span className="text-[#4285F4]">G</span>
+                            <span className="text-[#EA4335]">o</span>
+                            <span className="text-[#FBBC05]">o</span>
+                            <span className="text-[#4285F4]">g</span>
+                            <span className="text-[#34A853]">l</span>
+                            <span className="text-[#EA4335]">e</span>
+                          </div>
+
+                          {/* Barra di ricerca centrale Google */}
+                          <form
+                            onSubmit={(e) => {
+                              e.preventDefault();
+                              if (googleSearchQuery.trim()) {
+                                navigateChromeTo(googleSearchQuery);
+                                setGoogleSearchQuery('');
+                              }
+                            }}
+                            className="w-full max-w-[520px] flex items-center bg-white border border-gray-200 hover:shadow-md focus-within:shadow-md rounded-full px-4 py-2.5 gap-3 mb-7 transition-shadow"
+                          >
+                            <Search size={16} className="text-gray-400" />
+                            <input
+                              type="text"
+                              value={googleSearchQuery}
+                              onChange={(e) => setGoogleSearchQuery(e.target.value)}
+                              placeholder="Search Google or type a URL"
+                              className="flex-1 text-[13.5px] text-gray-800 focus:outline-none select-text"
+                            />
+                            <Mic size={16} className="text-[#4285F4] cursor-pointer" />
+                          </form>
+
+                          {/* Scorciatoie Rapide New Tab (Web Store, Google News, YouTube, Wikipedia, Add shortcut) */}
+                          <div className="flex items-center gap-6">
+                            {[
+                              {
+                                label: 'Google News',
+                                url: 'https://news.google.com',
+                                icon: '📰',
+                              },
+                              {
+                                label: 'Wikipedia',
+                                url: 'https://it.wikipedia.org',
+                                icon: '🌐',
+                              },
+                              {
+                                label: 'YouTube',
+                                url: 'https://www.youtube.com',
+                                icon: '▶️',
+                              },
+                              {
+                                label: 'Add shortcut',
+                                url: 'https://www.google.com/search?igu=1&q=Torino+notizie+oggi',
+                                icon: '+',
+                              },
+                            ].map((sc) => (
+                              <button
+                                key={sc.label}
+                                onClick={() => navigateChromeTo(sc.url)}
+                                className="flex flex-col items-center gap-2 group cursor-pointer"
+                              >
+                                <div className="w-11 h-11 rounded-full bg-[#f1f3f4] group-hover:bg-[#e8eaed] flex items-center justify-center text-base text-gray-700 transition-colors">
+                                  {sc.icon}
+                                </div>
+                                <span className="text-[11.5px] text-gray-700">
+                                  {sc.label}
+                                </span>
+                              </button>
+                            ))}
+                          </div>
+
+                          {/* Pillola Customize Chrome in basso a destra (Screenshot 4) */}
+                          <div className="absolute bottom-3 right-4 px-3 py-1.5 rounded-full bg-[#d3e3fd] text-[#041e49] text-[11px] font-medium flex items-center gap-1.5 shadow-2xs">
+                            <span>✎</span>
+                            <span>Customize Chrome</span>
+                          </div>
+                        </div>
+                      ) : isElectron ? (
+                        /* VERO MOTORE CHROMIUM INTERATTIVO IN ELECTRON */
+                        <webview
+                          ref={webviewRef}
+                          src={activeChromeTab.url}
+                          className="w-full h-full flex-1 border-0"
+                          allowpopups="true"
+                        />
+                      ) : (
+                        /* Iframe + Fallback live quando aperto su browser normale o mobile */
+                        <div className="w-full h-full flex flex-col">
+                          <iframe
+                            src={activeChromeTab.url}
+                            title="Chrome Viewport"
+                            className="w-full flex-1 border-0 bg-white"
+                            sandbox="allow-same-origin allow-scripts allow-forms allow-popups"
+                          />
+                          {webFallbackHtml && (
+                            <div className="h-44 border-t border-gray-200 bg-gray-50 p-3 overflow-y-auto text-xs text-gray-700 select-text">
+                              <div className="font-bold text-gray-900 mb-1">
+                                Contenuto Live letto da {botName}:
+                              </div>
+                              <div className="whitespace-pre-wrap leading-relaxed">
+                                {webFallbackHtml}
                               </div>
                             </div>
-                          </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* FINESTRA 2: FILE MANAGER REALE (pcmanfm) */}
+                {openWindow === 'files' && (
+                  <div className="z-10 w-[92%] h-[88%] m-auto bg-[#23262e] rounded-lg border border-white/15 shadow-2xl flex flex-col overflow-hidden text-gray-200">
+                    <div className="h-9 bg-[#191b22] px-3 flex items-center justify-between border-b border-white/10 shrink-0">
+                      <div className="flex items-center gap-2 text-xs font-semibold">
+                        <Folder size={14} className="text-amber-400" />
+                        <span>File Manager — /home/{botId}/workspace</span>
+                      </div>
+                      <button
+                        onClick={() => setOpenWindow('none')}
+                        className="w-6 h-6 rounded hover:bg-red-500/80 flex items-center justify-center text-gray-400 hover:text-white cursor-pointer"
+                      >
+                        <X size={13} />
+                      </button>
+                    </div>
+                    <div className="flex-1 flex overflow-hidden">
+                      <div className="w-64 border-r border-white/10 p-3 flex flex-col bg-[#1b1e26]">
+                        <form onSubmit={handleCreateNewFile} className="flex gap-1.5 mb-3">
+                          <input
+                            type="text"
+                            value={newFileName}
+                            onChange={(e) => setNewFileName(e.target.value)}
+                            placeholder="nuovo_file.md..."
+                            className="flex-1 bg-black/40 border border-white/10 rounded px-2 py-1 text-xs text-white focus:outline-none select-text"
+                          />
                           <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleDeleteFile(f.name);
-                            }}
-                            className="p-1 rounded hover:bg-red-500/20 text-gray-500 hover:text-red-400"
-                            title="Elimina file"
+                            type="submit"
+                            className="px-2 py-1 rounded bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold cursor-pointer"
                           >
-                            <Trash2 size={13} />
+                            <Plus size={13} />
                           </button>
+                        </form>
+                        <div className="flex-1 overflow-y-auto space-y-1">
+                          {workspaceFiles.map((f) => (
+                            <div
+                              key={f.name}
+                              onClick={() => openDiskFile(f.name)}
+                              className={`flex items-center justify-between px-2.5 py-2 rounded-lg text-xs cursor-pointer ${
+                                selectedFile === f.name
+                                  ? 'bg-blue-600/30 text-white border border-blue-400/30'
+                                  : 'hover:bg-white/5 text-gray-300'
+                              }`}
+                            >
+                              <div className="flex items-center gap-2 truncate">
+                                <FileCode size={13} className="text-blue-400 shrink-0" />
+                                <span className="truncate">{f.name}</span>
+                              </div>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleDeleteFile(f.name);
+                                }}
+                                className="text-gray-500 hover:text-red-400 p-0.5"
+                              >
+                                <Trash2 size={11} />
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                      <div className="flex-1 flex flex-col p-4 bg-[#23262e]">
+                        {selectedFile ? (
+                          <>
+                            <div className="flex items-center justify-between mb-2">
+                              <span className="text-xs font-mono text-blue-300">
+                                {selectedFile}
+                              </span>
+                              <div className="flex items-center gap-2">
+                                {fileSavedMsg && (
+                                  <span className="text-xs text-emerald-400 font-semibold">
+                                    {fileSavedMsg}
+                                  </span>
+                                )}
+                                <button
+                                  onClick={handleSaveFile}
+                                  className="px-3 py-1 rounded bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold flex items-center gap-1.5 cursor-pointer"
+                                >
+                                  <Save size={12} />
+                                  <span>Salva</span>
+                                </button>
+                              </div>
+                            </div>
+                            <textarea
+                              value={fileContent}
+                              onChange={(e) => setFileContent(e.target.value)}
+                              className="flex-1 w-full bg-[#14161c] border border-white/10 rounded-lg p-3 font-mono text-xs text-gray-100 focus:outline-none resize-none select-text"
+                            />
+                          </>
+                        ) : (
+                          <div className="flex-1 flex items-center justify-center text-xs text-gray-500">
+                            Seleziona un file a sinistra per modificarlo sul disco reale.
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* FINESTRA 3: TERMINALE REALE (lxterminal) */}
+                {openWindow === 'terminal' && (
+                  <div className="z-10 w-[88%] h-[84%] m-auto bg-[#0e1015] rounded-lg border border-white/15 shadow-2xl flex flex-col overflow-hidden text-gray-200 font-mono">
+                    <div className="h-9 bg-[#191b22] px-3 flex items-center justify-between border-b border-white/10 shrink-0 font-sans">
+                      <div className="flex items-center gap-2 text-xs font-semibold">
+                        <Terminal size={14} className="text-emerald-400" />
+                        <span>lxterminal — {botId}@sand-box:~</span>
+                      </div>
+                      <button
+                        onClick={() => setOpenWindow('none')}
+                        className="w-6 h-6 rounded hover:bg-red-500/80 flex items-center justify-center text-gray-400 hover:text-white cursor-pointer"
+                      >
+                        <X size={13} />
+                      </button>
+                    </div>
+                    <div className="flex-1 p-4 overflow-y-auto space-y-1.5 text-xs select-text">
+                      {terminalHistory.map((item, i) => (
+                        <div
+                          key={i}
+                          className={`whitespace-pre-wrap leading-relaxed ${
+                            item.type === 'prompt'
+                              ? 'text-blue-400 font-bold'
+                              : item.type === 'error'
+                              ? 'text-red-400'
+                              : item.type === 'success'
+                              ? 'text-emerald-400'
+                              : 'text-gray-200'
+                          }`}
+                        >
+                          {item.text}
                         </div>
                       ))}
                     </div>
+                    <form
+                      onSubmit={handleCommand}
+                      className="h-10 border-t border-white/10 px-3 flex items-center gap-2 bg-[#14171f]"
+                    >
+                      <span className="text-emerald-400 text-xs font-bold">
+                        {botId}@sand-box:~$
+                      </span>
+                      <input
+                        type="text"
+                        value={cmdInput}
+                        onChange={(e) => setCmdInput(e.target.value)}
+                        placeholder="Scrivi un comando reale (es. dir, python --version, git status)..."
+                        className="flex-1 bg-transparent text-xs text-white focus:outline-none select-text"
+                      />
+                    </form>
                   </div>
+                )}
 
-                  <div className="md:col-span-7 p-4 flex flex-col gap-2 overflow-hidden">
-                    {selectedFile ? (
-                      <>
-                        <div className="flex items-center justify-between border-b border-white/10 pb-2">
-                          <span className="font-mono text-xs font-bold text-amber-300">
-                            {selectedFile}
-                          </span>
-                          <div className="flex items-center gap-2">
-                            {fileSavedMsg && (
-                              <span className="text-[11px] text-emerald-400 font-semibold">
-                                {fileSavedMsg}
-                              </span>
-                            )}
-                            <button
-                              onClick={handleSaveFile}
-                              className="px-3 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold flex items-center gap-1 cursor-pointer"
-                            >
-                              <Save size={12} />
-                              <span>Salva su Disco</span>
-                            </button>
-                          </div>
-                        </div>
-                        <textarea
-                          value={fileContent}
-                          onChange={(e) => setFileContent(e.target.value)}
-                          className="flex-1 w-full bg-[#0d0f12] border border-white/10 rounded-xl p-3 font-mono text-xs text-gray-200 focus:outline-none focus:border-amber-500 resize-none"
-                        />
-                      </>
-                    ) : (
-                      <div className="flex-1 flex flex-col items-center justify-center text-gray-500 text-xs gap-2">
-                        <Folder size={32} className="text-amber-400/60" />
-                        <span>Seleziona un file a sinistra per leggerlo o modificarlo su disco.</span>
+                {/* FINESTRA 4: BRIDGE SMART TV SALOTTO (172.20.10.3:5555) */}
+                {openWindow === 'tv' && (
+                  <div className="z-10 w-[94%] h-[90%] m-auto bg-[#141821] rounded-lg border border-white/15 shadow-2xl flex flex-col overflow-hidden text-gray-200">
+                    <div className="h-9 bg-[#191d28] px-3 flex items-center justify-between border-b border-white/10 shrink-0">
+                      <div className="flex items-center gap-2 text-xs font-semibold">
+                        <Tv size={14} className="text-emerald-400" />
+                        <span>
+                          Smart TV Salotto ({tvStatus.serial}) • App attiva: {tvStatus.currentApp}
+                        </span>
                       </div>
-                    )}
+                      <button
+                        onClick={() => setOpenWindow('none')}
+                        className="w-6 h-6 rounded hover:bg-red-500/80 flex items-center justify-center text-gray-400 hover:text-white cursor-pointer"
+                      >
+                        <X size={13} />
+                      </button>
+                    </div>
+                    <div className="flex-1 p-4 grid grid-cols-12 gap-4 overflow-y-auto">
+                      <div className="col-span-7 flex flex-col gap-3">
+                        <div className="aspect-video bg-black rounded-lg border border-white/10 overflow-hidden relative flex items-center justify-center">
+                          {screenshotUrl ? (
+                            <img
+                              src={screenshotUrl}
+                              alt="Smart TV Live"
+                              className="w-full h-full object-contain"
+                              onLoad={() => setIsLoadingScreen(false)}
+                            />
+                          ) : (
+                            <span className="text-xs text-gray-500">
+                              Connessione video ADB alla TV...
+                            </span>
+                          )}
+                        </div>
+                        <form onSubmit={handleTvQuerySubmit} className="flex gap-2">
+                          <input
+                            type="text"
+                            value={tvQueryInput}
+                            onChange={(e) => setTvQueryInput(e.target.value)}
+                            placeholder={`Scrivi cosa cercare su YouTube TV o far dire a ${botName}...`}
+                            className="flex-1 bg-black/40 border border-white/10 rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none select-text"
+                          />
+                          <button
+                            type="submit"
+                            className="px-3 py-1.5 rounded-lg bg-red-600 hover:bg-red-500 text-white text-xs font-semibold cursor-pointer"
+                          >
+                            YouTube TV
+                          </button>
+                          <button
+                            type="button"
+                            onClick={handleSamanthaSpeakOnTv}
+                            className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold cursor-pointer"
+                          >
+                            Parla su TV
+                          </button>
+                        </form>
+                      </div>
+                      <div className="col-span-5 flex flex-col gap-3">
+                        <div className="grid grid-cols-2 gap-1.5">
+                          {QUICK_TV_APPS.map((app) => (
+                            <button
+                              key={app.id}
+                              onClick={() =>
+                                sendTvCommand(
+                                  { type: 'launch_app', app: app.id },
+                                  `Avvio ${app.label}`
+                                )
+                              }
+                              className={`py-2 px-2.5 rounded-lg border text-xs font-semibold text-left cursor-pointer ${app.color}`}
+                            >
+                              {app.label}
+                            </button>
+                          ))}
+                        </div>
+                        {tvCommandStatus && (
+                          <div className="text-[11px] text-emerald-400 font-mono bg-black/30 p-2 rounded">
+                            {tvCommandStatus}
+                          </div>
+                        )}
+                      </div>
+                    </div>
                   </div>
+                )}
+
+                {/* Overlay trasparente quando sei in modalità "Visualizzazione" (cliccandolo o premendo "Prendi il controllo" attivi l'interazione) */}
+                {!hasControl && openWindow !== 'none' && (
+                  <div
+                    onClick={() => {
+                      sounds.play('tick');
+                      setHasControl(true);
+                    }}
+                    className="absolute inset-0 z-20 bg-transparent cursor-pointer"
+                    title="Clicca per prendere il controllo del desktop"
+                  />
+                )}
+              </div>
+
+              {/* BARRA INFERIORE LINUX TINT2 (Identica a Screenshot 3 & 4: icone 1Password, Chrome, File Manager, Terminale + Orologio a destra) */}
+              <div className="h-9 bg-[#14171c] border-t border-white/[0.07] px-3 flex items-center justify-between shrink-0 z-30">
+                <div className="flex-1" />
+
+                {/* Icone Centrali della Dock tint2 */}
+                <div className="flex items-center gap-2">
+                  {/* 1. 1Password / Cassaforte */}
+                  <button
+                    onClick={() => {
+                      sounds.play('tick');
+                      setHasControl(true);
+                      setOpenWindow('files');
+                    }}
+                    className="w-7 h-7 rounded-md hover:bg-white/10 flex items-center justify-center transition-colors cursor-pointer"
+                    title="1Password & Credenziali Bot"
+                  >
+                    <div className="w-5 h-5 rounded-full bg-[#0a85ea] flex items-center justify-center text-white font-bold text-[10px] border border-white/30">
+                      <KeyRound size={11} />
+                    </div>
+                  </button>
+
+                  {/* 2. Google Chrome (con pallini colorati ufficiali) */}
+                  <button
+                    onClick={() => {
+                      sounds.play('tick');
+                      setHasControl(true);
+                      setOpenWindow((w) => (w === 'chrome' ? 'none' : 'chrome'));
+                    }}
+                    className={`h-7 px-2 rounded-md flex items-center gap-1.5 transition-colors cursor-pointer ${
+                      openWindow === 'chrome'
+                        ? 'bg-white/15 text-white'
+                        : 'hover:bg-white/10 text-gray-300'
+                    }`}
+                    title="Google Chrome"
+                  >
+                    <div className="w-5 h-5 rounded-full bg-gradient-to-tr from-[#34A853] via-[#FBBC05] to-[#EA4335] p-0.5 flex items-center justify-center">
+                      <div className="w-2.5 h-2.5 rounded-full bg-[#4285F4] border border-white" />
+                    </div>
+                    {openWindow === 'chrome' && (
+                      <span className="text-[11px] text-gray-200 max-w-[140px] truncate">
+                        {activeChromeTab.title} - Google Chrome
+                      </span>
+                    )}
+                  </button>
+
+                  {/* 3. File Manager (pcmanfm) */}
+                  <button
+                    onClick={() => {
+                      sounds.play('tick');
+                      setHasControl(true);
+                      setOpenWindow((w) => (w === 'files' ? 'none' : 'files'));
+                    }}
+                    className={`w-7 h-7 rounded-md flex items-center justify-center transition-colors cursor-pointer ${
+                      openWindow === 'files' ? 'bg-white/15' : 'hover:bg-white/10'
+                    }`}
+                    title="File Manager"
+                  >
+                    <Folder size={16} className="text-gray-300" />
+                  </button>
+
+                  {/* 4. Terminale Linux (lxterminal `>_`) */}
+                  <button
+                    onClick={() => {
+                      sounds.play('tick');
+                      setHasControl(true);
+                      setOpenWindow((w) => (w === 'terminal' ? 'none' : 'terminal'));
+                    }}
+                    className={`w-7 h-7 rounded-md flex items-center justify-center transition-colors cursor-pointer ${
+                      openWindow === 'terminal' ? 'bg-white/15' : 'hover:bg-white/10'
+                    }`}
+                    title="Terminale"
+                  >
+                    <div className="w-5 h-4 rounded-xs bg-[#2c313a] border border-gray-500 flex items-center px-1 text-[9px] font-mono text-white font-bold">
+                      &gt;_
+                    </div>
+                  </button>
+
+                  {/* 5. Smart TV Salotto Bridge */}
+                  <button
+                    onClick={() => {
+                      sounds.play('tick');
+                      setHasControl(true);
+                      setOpenWindow((w) => (w === 'tv' ? 'none' : 'tv'));
+                    }}
+                    className={`w-7 h-7 rounded-md flex items-center justify-center transition-colors cursor-pointer ${
+                      openWindow === 'tv' ? 'bg-white/15' : 'hover:bg-white/10'
+                    }`}
+                    title="Smart TV Salotto (172.20.10.3)"
+                  >
+                    <Tv size={15} className="text-emerald-400" />
+                  </button>
                 </div>
-              )}
+
+                {/* Orologio a destra in stile tint2 ("Wed Nov 11  12:24 AM") */}
+                <div className="flex-1 flex justify-end">
+                  <span className="text-[11px] text-gray-300 font-mono tracking-tight">
+                    {clockText}
+                  </span>
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* 3. Pillola Bianca Inferiore IDENTICA agli Screenshot 2, 3 e 4:
+          - Stato Visualizzazione: [ 👁 Visualizzazione  ( Prendi il controllo ) ]
+          - Stato Controllo:       [ 🖱 Hai il controllo ( Interrompi ) ] */}
+      <div className="h-11 flex items-center justify-center shrink-0">
+        {!hasControl ? (
+          <div className="flex items-center gap-2 bg-white rounded-full pl-3.5 pr-1.5 py-1 shadow-xl">
+            <div className="flex items-center gap-1.5 text-[12px] font-medium text-gray-600">
+              <Eye size={13} className="text-gray-400" />
+              <span>Visualizzazione</span>
             </div>
+            <button
+              onClick={() => {
+                sounds.play('tick');
+                setHasControl(true);
+                if (openWindow === 'none') {
+                  setOpenWindow('chrome');
+                }
+              }}
+              className="px-3 py-1 rounded-full bg-[#141415] hover:bg-[#2a2a2d] text-white text-[12px] font-semibold transition-colors cursor-pointer"
+            >
+              Prendi il controllo
+            </button>
           </div>
-
-          {/* 3. Dock delle Applicazioni */}
-          <div className="h-12 bg-[#121418] border-t border-white/5 px-6 flex items-center justify-between text-xs shrink-0">
-            <div className="flex items-center gap-3">
-              <button
-                onClick={() => {
-                  sounds.play('tick');
-                  setActiveApp('tv');
-                }}
-                className={`px-3 py-1.5 rounded-xl flex items-center gap-1.5 font-semibold transition-all cursor-pointer ${
-                  activeApp === 'tv'
-                    ? 'bg-pink-600 text-white shadow'
-                    : 'text-gray-400 hover:bg-white/5 hover:text-gray-200'
-                }`}
-              >
-                <Tv size={15} />
-                <span>Android TV Salotto</span>
-              </button>
-
-              <button
-                onClick={() => {
-                  sounds.play('tick');
-                  setActiveApp('terminal');
-                }}
-                className={`px-3 py-1.5 rounded-xl flex items-center gap-1.5 font-semibold transition-all cursor-pointer ${
-                  activeApp === 'terminal'
-                    ? 'bg-cyan-600 text-white shadow'
-                    : 'text-gray-400 hover:bg-white/5 hover:text-gray-200'
-                }`}
-              >
-                <Terminal size={15} />
-                <span>Terminale</span>
-              </button>
-
-              <button
-                onClick={() => {
-                  sounds.play('tick');
-                  setActiveApp('browser');
-                }}
-                className={`px-3 py-1.5 rounded-xl flex items-center gap-1.5 font-semibold transition-all cursor-pointer ${
-                  activeApp === 'browser'
-                    ? 'bg-emerald-600 text-white shadow'
-                    : 'text-gray-400 hover:bg-white/5 hover:text-gray-200'
-                }`}
-              >
-                <Globe size={15} />
-                <span>Web & News Live</span>
-              </button>
-
-              <button
-                onClick={() => {
-                  sounds.play('tick');
-                  setActiveApp('files');
-                }}
-                className={`px-3 py-1.5 rounded-xl flex items-center gap-1.5 font-semibold transition-all cursor-pointer ${
-                  activeApp === 'files'
-                    ? 'bg-amber-500 text-black shadow'
-                    : 'text-gray-400 hover:bg-white/5 hover:text-gray-200'
-                }`}
-              >
-                <Folder size={15} />
-                <span>File & Libreria ({workspaceFiles.length})</span>
-              </button>
+        ) : (
+          <div className="flex items-center gap-2 bg-white rounded-full pl-3.5 pr-1.5 py-1 shadow-xl">
+            <div className="flex items-center gap-1.5 text-[12px] font-semibold text-gray-800">
+              <MousePointer size={13} className="text-gray-700" />
+              <span>Hai il controllo</span>
             </div>
-
-            <div className="flex items-center gap-3">
-              <button
-                onClick={() => setMode(mode === 'controllo' ? 'visualizzazione' : 'controllo')}
-                className="text-[11px] text-gray-300 bg-white/5 hover:bg-white/10 px-3 py-1 rounded-full border border-white/10 flex items-center gap-1.5 cursor-pointer"
-              >
-                {mode === 'controllo' ? <MousePointer size={12} /> : <Eye size={12} />}
-                <span>{mode === 'controllo' ? 'Controllo Attivo' : 'Sola Visualizzazione'}</span>
-              </button>
-            </div>
+            <button
+              onClick={() => {
+                sounds.play('tick');
+                setHasControl(false);
+              }}
+              className="px-3 py-1 rounded-full bg-[#e5e7eb] hover:bg-[#d1d5db] text-gray-800 text-[12px] font-semibold transition-colors cursor-pointer"
+            >
+              Interrompi
+            </button>
           </div>
-        </motion.div>
-      </motion.div>
-    </AnimatePresence>
+        )}
+      </div>
+    </div>
   );
 }
-
