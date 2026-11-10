@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+﻿import React, { useState, useEffect } from 'react';
 import {
   Minus,
   Square as MaximizeIcon,
@@ -33,9 +33,10 @@ export default function SidebarRight({
   onOpenTeachModal,
   onRunTaskInChat,
   elevenLabsApiKey,
+  onCloseSidebarRight,
   onMinimize,
   onMaximize,
-  onClose,
+  onCloseWindow,
 }) {
   const [activeTab, setActiveTab] = useState('attivita'); // 'attivita' | 'identita' | 'libreria'
   const [hideSuggestions, setHideSuggestions] = useState(false);
@@ -65,7 +66,7 @@ export default function SidebarRight({
     setIsPlayingSample(true);
 
     const voiceId = activeBot?.voiceId || 'CiwzbDpaN3pQXjTgx3ML';
-    const sampleText = `Ciao Dion! Sono ${activeBot?.name || 'Samantha'}. Questa è la mia voce indipendente in Bot Park.`;
+    const sampleText = `Ciao! Sono ${activeBot?.name || 'Samantha'}. Questa Ã¨ la mia voce indipendente in Bot Park.`;
 
     await speakTextWithElevenLabs({
       text: sampleText,
@@ -148,32 +149,57 @@ export default function SidebarRight({
 
   return (
     <aside className="w-72 h-full bg-[#fbfcfc] border-l border-[#e5e7eb] flex flex-col select-none shrink-0 text-[#1f2937] font-['Plus_Jakarta_Sans',sans-serif]">
-      {/* 1. Header con Window Controls in alto a destra */}
-      <div className="h-10 flex items-center justify-end px-3 gap-1 shrink-0">
+      {/* 1. Header identico all'originale Grok Bot (Image 3): Cerchio ( X ) "Chiudi" + separatore "|" + Controlli Finestra (â€”  â–¡  Ã—) */}
+      <div
+        className="h-12 flex items-center justify-end px-3 gap-2 shrink-0"
+        style={{ WebkitAppRegion: 'drag' }}
+      >
+        {/* Pulsante circolare ( X ) per chiudere la Sidebar Destra */}
         <button
-          onClick={onMinimize}
-          className="p-1 rounded hover:bg-gray-200/80 text-gray-400 hover:text-gray-700 transition-colors cursor-pointer"
-          title="Riduci a icona"
-        >
-          <Minus size={13} />
-        </button>
-        <button
-          onClick={onMaximize}
-          className="p-1 rounded hover:bg-gray-200/80 text-gray-400 hover:text-gray-700 transition-colors cursor-pointer"
-          title="Ingrandisci"
-        >
-          <MaximizeIcon size={11} />
-        </button>
-        <button
-          onClick={onClose}
-          className="p-1 rounded hover:bg-red-50 text-gray-400 hover:text-red-500 transition-colors cursor-pointer"
+          onClick={() => {
+            sounds.play('tick');
+            onCloseSidebarRight && onCloseSidebarRight();
+          }}
+          style={{ WebkitAppRegion: 'no-drag' }}
+          className="w-8 h-8 rounded-full bg-[#f3f4f6] hover:bg-[#e5e7eb] border border-gray-200/80 flex items-center justify-center text-gray-600 hover:text-gray-900 transition-colors cursor-pointer"
           title="Chiudi"
         >
-          <X size={14} />
+          <X size={15} strokeWidth={2} />
         </button>
+
+        {/* Divisore verticale sottile "|" */}
+        <div className="h-4 w-px bg-gray-200 mx-0.5" />
+
+        {/* I 3 pulsanti di controllo finestra (Minimizza, Ingrandisci, Chiudi App) */}
+        <div
+          className="flex items-center gap-1"
+          style={{ WebkitAppRegion: 'no-drag' }}
+        >
+          <button
+            onClick={onMinimize}
+            className="w-7 h-7 rounded-lg hover:bg-gray-200/80 flex items-center justify-center text-gray-500 hover:text-gray-800 transition-colors cursor-pointer"
+            title="Riduci a icona"
+          >
+            <Minus size={14} />
+          </button>
+          <button
+            onClick={onMaximize}
+            className="w-7 h-7 rounded-lg hover:bg-gray-200/80 flex items-center justify-center text-gray-500 hover:text-gray-800 transition-colors cursor-pointer"
+            title="Ingrandisci"
+          >
+            <MaximizeIcon size={12} />
+          </button>
+          <button
+            onClick={onCloseWindow}
+            className="w-7 h-7 rounded-lg hover:bg-red-50 flex items-center justify-center text-gray-500 hover:text-red-600 transition-colors cursor-pointer"
+            title="Chiudi applicazione"
+          >
+            <X size={15} />
+          </button>
+        </div>
       </div>
 
-      {/* 2. Profilo del Bot (Avatar grande, Nome, Tab Attività / Identità / Libreria) */}
+      {/* 2. Profilo del Bot (Avatar grande, Nome, Tab AttivitÃ  / IdentitÃ  / Libreria) */}
       <div className="flex flex-col items-center pt-2 pb-3.5 border-b border-[#e5e7eb]/70 px-4">
         <div className="mb-2">
           <BotAvatar
@@ -189,7 +215,7 @@ export default function SidebarRight({
           {activeBot?.subtitle}
         </span>
 
-        {/* Schede Attività / Identità / Libreria */}
+        {/* Schede AttivitÃ  / IdentitÃ  / Libreria */}
         <div className="flex items-center gap-5 mt-3 text-xs font-semibold">
           <button
             onClick={() => {
@@ -205,7 +231,7 @@ export default function SidebarRight({
               borderColor: activeTab === 'attivita' ? botColor : 'transparent',
             }}
           >
-            Attività
+            AttivitÃ 
           </button>
           <button
             onClick={() => {
@@ -221,7 +247,7 @@ export default function SidebarRight({
               borderColor: activeTab === 'identita' ? botColor : 'transparent',
             }}
           >
-            Identità
+            IdentitÃ 
           </button>
           <button
             onClick={() => {
@@ -246,7 +272,7 @@ export default function SidebarRight({
       <div className="flex-1 overflow-y-auto p-4 space-y-5 text-xs">
         {activeTab === 'attivita' ? (
           <>
-            {/* Sezione Suggerimenti (Crea una routine + Insegna un'attività) */}
+            {/* Sezione Suggerimenti (Crea una routine + Insegna un'attivitÃ ) */}
             <div>
               <div className="flex items-center justify-between text-gray-500 mb-2 font-medium">
                 <span>Suggerimenti</span>
@@ -274,7 +300,7 @@ export default function SidebarRight({
                     <ChevronRight size={13} className="text-gray-400" />
                   </button>
 
-                  {/* Feature #1 dallo scraping Grok Bot: Insegna un'attività (Teach Mode / Screen Record) */}
+                  {/* Feature #1 dallo scraping Grok Bot: Insegna un'attivitÃ  (Teach Mode / Screen Record) */}
                   <button
                     onClick={() => {
                       sounds.play('tick');
@@ -284,7 +310,7 @@ export default function SidebarRight({
                   >
                     <div className="flex items-center gap-2">
                       <Video size={15} style={{ color: botColor }} />
-                      <span className="text-gray-800 font-medium">Insegna un'attività</span>
+                      <span className="text-gray-800 font-medium">Insegna un'attivitÃ </span>
                     </div>
                     <ChevronRight size={13} className="text-gray-400" />
                   </button>
@@ -374,7 +400,7 @@ export default function SidebarRight({
                   className="text-[10px] font-bold hover:underline cursor-pointer"
                   style={{ color: botColor }}
                 >
-                  Apri Schermo ↗
+                  Apri Schermo â†—
                 </button>
               </div>
 
@@ -412,18 +438,18 @@ export default function SidebarRight({
                 </button>
               </div>
 
-              {/* Card dedicata Controllo Diretto Smart TV Android (172.20.10.3) */}
+              {/* Card dedicata Controllo Diretto Smart TV Android (Smart TV) */}
               <div
                 onClick={() => onOpenComputer && onOpenComputer('tv')}
                 className="p-3 rounded-2xl bg-gradient-to-r from-pink-50/80 to-white border border-pink-200/80 flex items-center justify-between shadow-xs hover:border-pink-400 transition-all cursor-pointer"
               >
                 <div>
                   <div className="font-bold text-gray-900 flex items-center gap-1.5">
-                    <span>📺 Smart TV Salotto</span>
+                    <span>ðŸ“º Smart TV Salotto</span>
                   </div>
                   <div className="text-[10.5px] text-pink-600 font-medium flex items-center gap-1 mt-0.5">
                     <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping" />
-                    <span>172.20.10.3 • Telecomando & Live</span>
+                    <span>Smart TV â€¢ Telecomando & Live</span>
                   </div>
                 </div>
                 <ChevronRight size={15} className="text-pink-500" />
@@ -470,7 +496,7 @@ export default function SidebarRight({
                 </div>
 
                 <div className="flex items-center justify-between">
-                  <span className="text-gray-600">Velocità</span>
+                  <span className="text-gray-600">VelocitÃ </span>
                   <select
                     value={activeBot?.speed || '1.0x'}
                     onChange={(e) =>
@@ -478,11 +504,11 @@ export default function SidebarRight({
                     }
                     className="bg-transparent font-semibold text-gray-800 focus:outline-none cursor-pointer"
                   >
-                    <option value="0.9x">0.9x ⌵</option>
-                    <option value="1.0x">1.0x ⌵</option>
-                    <option value="1.05x">1.05x ⌵</option>
-                    <option value="1.15x">1.15x ⌵</option>
-                    <option value="1.25x">1.25x ⌵</option>
+                    <option value="0.9x">0.9x âŒµ</option>
+                    <option value="1.0x">1.0x âŒµ</option>
+                    <option value="1.05x">1.05x âŒµ</option>
+                    <option value="1.15x">1.15x âŒµ</option>
+                    <option value="1.25x">1.25x âŒµ</option>
                   </select>
                 </div>
 
@@ -495,8 +521,8 @@ export default function SidebarRight({
                     }
                     className="bg-transparent font-semibold text-gray-800 focus:outline-none cursor-pointer"
                   >
-                    <option value="Italian">Italian ⌵</option>
-                    <option value="English">English ⌵</option>
+                    <option value="Italian">Italian âŒµ</option>
+                    <option value="English">English âŒµ</option>
                   </select>
                 </div>
 
@@ -516,7 +542,7 @@ export default function SidebarRight({
             </div>
           </>
         ) : activeTab === 'identita' ? (
-          /* Scheda Identità Indipendente + Memorie & Skill dell'Agente (Feature #2) */
+          /* Scheda IdentitÃ  Indipendente + Memorie & Skill dell'Agente (Feature #2) */
           <div className="space-y-4">
             <div
               className="p-2.5 rounded-xl border text-[11px] flex items-center gap-2"
@@ -528,7 +554,7 @@ export default function SidebarRight({
             >
               <Sparkles size={14} style={{ color: botColor }} className="shrink-0" />
               <span>
-                <strong>{activeBot?.name}</strong> ha memoria, personalità, skill e voce indipendenti dagli altri bot.
+                <strong>{activeBot?.name}</strong> ha memoria, personalitÃ , skill e voce indipendenti dagli altri bot.
               </span>
             </div>
 
@@ -549,7 +575,7 @@ export default function SidebarRight({
             <div>
               <div className="flex items-center justify-between mb-1">
                 <label className="text-[11px] font-semibold text-gray-500">
-                  Istruzioni & Personalità Indipendente
+                  Istruzioni & PersonalitÃ  Indipendente
                 </label>
                 {savedBadge && (
                   <span className="text-[10px] text-emerald-600 font-bold flex items-center gap-0.5">
@@ -721,7 +747,7 @@ export default function SidebarRight({
                           {f.name}
                         </div>
                         <div className="text-[10px] text-gray-400">
-                          {f.date} • {f.size}
+                          {f.date} â€¢ {f.size}
                         </div>
                       </div>
                     </div>
@@ -736,3 +762,4 @@ export default function SidebarRight({
     </aside>
   );
 }
+

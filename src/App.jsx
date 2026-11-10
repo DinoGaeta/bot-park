@@ -148,7 +148,38 @@ export default function App() {
   const [showRoutineModal, setShowRoutineModal] = useState(false);
   const [showTeachModal, setShowTeachModal] = useState(false);
   const [showCommandPalette, setShowCommandPalette] = useState(false);
+  const [isRightSidebarOpen, setIsRightSidebarOpen] = useState(true);
   const [settingsInitialTab, setSettingsInitialTab] = useState('generali');
+
+  // Helper universali per i 3 pulsanti finestra (Minimizza, Ingrandisci, Chiudi) sia in Electron che nel Browser
+  const handleWindowMinimize = () => {
+    sounds.play('tick');
+    if (window.botParkAPI?.minimize) {
+      window.botParkAPI.minimize();
+    } else {
+      window.blur();
+    }
+  };
+
+  const handleWindowMaximize = () => {
+    sounds.play('tick');
+    if (window.botParkAPI?.toggleMaximize) {
+      window.botParkAPI.toggleMaximize();
+    } else if (!document.fullscreenElement) {
+      document.documentElement.requestFullscreen?.().catch(() => {});
+    } else {
+      document.exitFullscreen?.().catch(() => {});
+    }
+  };
+
+  const handleWindowClose = () => {
+    sounds.play('close');
+    if (window.botParkAPI?.close) {
+      window.botParkAPI.close();
+    } else {
+      window.close();
+    }
+  };
 
   // Scorciatoia globale Ctrl+K per aprire la Ricerca Universale (Feature #4)
   useEffect(() => {
@@ -966,7 +997,7 @@ export default function App() {
         onOpenPairModal={() => setShowPairModal(true)}
       />
 
-      {/* 2. Centro Chat (con colore dinamico dell'Agente, @menzioni, Canvas a schermo intero e allegati multi-formato) */}
+      {/* 2. Centro Chat (con colore dinamico dell'Agente, Pill cliccabile, @menzioni, Canvas a schermo intero e allegati multi-formato) */}
       <ChatCenter
         activeBot={activeBot}
         bots={bots}
@@ -988,25 +1019,33 @@ export default function App() {
         onSelectOption={(opt) => handleSendMessage(opt)}
         onSelectBot={(id) => setActiveBotId(id)}
         speakingMessageIndex={speakingMessageIndex}
+        isRightSidebarOpen={isRightSidebarOpen}
+        onToggleRightSidebar={() => setIsRightSidebarOpen((v) => !v)}
+        onMinimize={handleWindowMinimize}
+        onMaximize={handleWindowMaximize}
+        onCloseWindow={handleWindowClose}
       />
 
-      {/* 3. Sidebar Destra (AttivitÃ , Promemoria, Insegna Skill, Memorie, Libreria su Disco, Smart TV e Voce ElevenLabs) */}
-      <SidebarRight
-        activeBot={activeBot}
-        onUpdateBot={(updated) =>
-          setBots((prev) => prev.map((b) => (b.id === updated.id ? updated : b)))
-        }
-        onStartVoiceCall={() => setShowVoiceCallModal(true)}
-        onOpenComputer={handleOpenComputer}
-        onOpenFileInEditor={handleOpenFileInEditor}
-        onCreateRoutine={() => setShowRoutineModal(true)}
-        onOpenTeachModal={() => setShowTeachModal(true)}
-        onRunTaskInChat={(taskText) => handleSendMessage(taskText)}
-        elevenLabsApiKey={elevenLabsApiKey}
-        onMinimize={() => window.botParkAPI?.minimize()}
-        onMaximize={() => window.botParkAPI?.toggleMaximize()}
-        onClose={() => window.botParkAPI?.close()}
-      />
+      {/* 3. Sidebar Destra a scomparsa (aperta dalla Pill centrale con Nome Bot >, chiusa dal cerchio ( X ) "Chiudi") */}
+      {isRightSidebarOpen && (
+        <SidebarRight
+          activeBot={activeBot}
+          onUpdateBot={(updated) =>
+            setBots((prev) => prev.map((b) => (b.id === updated.id ? updated : b)))
+          }
+          onStartVoiceCall={() => setShowVoiceCallModal(true)}
+          onOpenComputer={handleOpenComputer}
+          onOpenFileInEditor={handleOpenFileInEditor}
+          onCreateRoutine={() => setShowRoutineModal(true)}
+          onOpenTeachModal={() => setShowTeachModal(true)}
+          onRunTaskInChat={(taskText) => handleSendMessage(taskText)}
+          elevenLabsApiKey={elevenLabsApiKey}
+          onCloseSidebarRight={() => setIsRightSidebarOpen(false)}
+          onMinimize={handleWindowMinimize}
+          onMaximize={handleWindowMaximize}
+          onCloseWindow={handleWindowClose}
+        />
+      )}
 
       {/* 4. Modale Creazione Nuovo Agente */}
       <CreateBotModal

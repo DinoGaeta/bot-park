@@ -19,6 +19,9 @@ import {
   Copy,
   Check,
   Send,
+  ChevronRight,
+  Minus,
+  Square as MaximizeIcon,
 } from 'lucide-react';
 import { marked } from 'marked';
 import BotAvatar from './BotAvatar';
@@ -45,6 +48,11 @@ export default function ChatCenter({
   onSelectOption,
   onSelectBot,
   speakingMessageIndex,
+  isRightSidebarOpen = false,
+  onToggleRightSidebar,
+  onMinimize,
+  onMaximize,
+  onCloseWindow,
 }) {
   const messagesEndRef = useRef(null);
   const fileInputRef = useRef(null);
@@ -83,52 +91,81 @@ export default function ChatCenter({
 
   return (
     <div className="flex-1 h-full flex flex-col bg-white overflow-hidden relative select-none font-['Plus_Jakarta_Sans',sans-serif]">
-      {/* 1. Header Superiore della Chat */}
-      <header className="h-12 border-b border-[#e5e7eb] flex items-center justify-between px-6 shrink-0 bg-white/90 backdrop-blur-md">
-        {/* Tasto Cerca Rapido Ctrl+K */}
+      {/* 1. Header Superiore della Chat — Identico all'originale Grok Bot (Image 1 & Image 4) */}
+      <header
+        className="h-12 flex items-center justify-between px-4 shrink-0 bg-white/95 backdrop-blur-md z-20"
+        style={{ WebkitAppRegion: 'drag' }}
+      >
+        {/* Spazio sinistro per bilanciare il centraggio perfetto della Pill */}
+        <div className="w-36" />
+
+        {/* Pill Centrale Cliccabile con Avatar + Nome Bot + ">" (Image 4: apre/chiude la Sidebar Destra!) */}
         <button
           onClick={() => {
             sounds.play('tick');
-            onOpenSearch && onOpenSearch();
+            onToggleRightSidebar && onToggleRightSidebar();
           }}
-          className="flex items-center gap-1.5 text-xs font-medium text-gray-500 hover:text-gray-900 bg-gray-100 hover:bg-gray-200/70 px-2.5 py-1 rounded-lg transition-colors cursor-pointer"
-          title="Cerca Bot, chat, file e impostazioni (Ctrl+K)"
-        >
-          <Search size={13} />
-          <span>Cerca</span>
-          <kbd className="text-[10px] bg-white px-1 rounded border border-gray-200 text-gray-400">
-            Ctrl+K
-          </kbd>
-        </button>
-
-        {/* Pill Centrale con Nome e Colore del Bot Attivo */}
-        <div
-          className="flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-[#f3f4f6] border shadow-xs transition-colors"
-          style={{ borderColor: `${botColor}44` }}
+          style={{ WebkitAppRegion: 'no-drag' }}
+          className="group flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-white hover:bg-[#f3f4f6] border border-gray-200/80 shadow-xs transition-all cursor-pointer"
+          title={activeBot?.name}
         >
           <BotAvatar bot={activeBot} size="small" />
-          <span className="text-xs font-bold text-gray-800">{activeBot?.name}</span>
-          <span
-            className="w-2 h-2 rounded-full"
-            style={{ backgroundColor: botColor }}
-            title={`Colore identità ${activeBot?.name}`}
+          <span className="text-[13px] font-semibold text-gray-900">
+            {activeBot?.name}
+          </span>
+          <ChevronRight
+            size={14}
+            className={`text-gray-400 group-hover:text-gray-700 transition-transform duration-200 ${
+              isRightSidebarOpen ? 'rotate-180' : ''
+            }`}
           />
-        </div>
-
-        {/* Tasto Condividi a destra */}
-        <button
-          onClick={() => {
-            sounds.play('tick');
-            const summary = messages
-              .map((m) => `${m.role === 'user' ? 'Dion' : activeBot?.name}: ${m.content}`)
-              .join('\n\n');
-            navigator.clipboard?.writeText(summary);
-            alert(`Trascrizione della chat con ${activeBot?.name} copiata negli appunti!`);
-          }}
-          className="text-xs font-semibold text-gray-700 hover:text-black transition-colors px-3 py-1 rounded-lg hover:bg-gray-100 cursor-pointer"
-        >
-          Condividi
         </button>
+
+        {/* Destra: Tasto "Condividi" + i 3 pulsanti Finestra (visibili qui quando la Sidebar Destra è chiusa, come in Image 1) */}
+        <div
+          className="flex items-center justify-end gap-2 w-36"
+          style={{ WebkitAppRegion: 'no-drag' }}
+        >
+          <button
+            onClick={() => {
+              sounds.play('tick');
+              const summary = messages
+                .map((m) => `${m.role === 'user' ? 'Tu' : activeBot?.name}: ${m.content}`)
+                .join('\n\n');
+              navigator.clipboard?.writeText(summary);
+              alert(`Trascrizione della chat con ${activeBot?.name} copiata negli appunti!`);
+            }}
+            className="text-xs font-medium text-gray-700 hover:text-black transition-colors px-3 py-1 rounded-full border border-gray-200 hover:bg-gray-100 cursor-pointer"
+          >
+            Condividi
+          </button>
+
+          {!isRightSidebarOpen && (
+            <div className="flex items-center gap-1 ml-1">
+              <button
+                onClick={onMinimize}
+                className="w-7 h-7 rounded-lg hover:bg-gray-200/80 flex items-center justify-center text-gray-500 hover:text-gray-800 transition-colors cursor-pointer"
+                title="Riduci a icona"
+              >
+                <Minus size={14} />
+              </button>
+              <button
+                onClick={onMaximize}
+                className="w-7 h-7 rounded-lg hover:bg-gray-200/80 flex items-center justify-center text-gray-500 hover:text-gray-800 transition-colors cursor-pointer"
+                title="Ingrandisci"
+              >
+                <MaximizeIcon size={12} />
+              </button>
+              <button
+                onClick={onCloseWindow}
+                className="w-7 h-7 rounded-lg hover:bg-red-50 flex items-center justify-center text-gray-500 hover:text-red-600 transition-colors cursor-pointer"
+                title="Chiudi applicazione"
+              >
+                <X size={15} />
+              </button>
+            </div>
+          )}
+        </div>
       </header>
 
       {/* 2. Flusso dei Messaggi */}
