@@ -281,24 +281,74 @@ export default function VoiceCallModal({
 
         setLiveTranscript(cleanTranscript);
 
-        const cleanSpokenReply = (reply || '')
+        const rawReply = reply || '';
+        const isHangUp =
+          /<<<HANG_UP>>>/i.test(rawReply) ||
+          /\b(stacca|chiudi|riattacca|termina|basta così|ci sentiamo dopo|a presto|chiudere la chiamata|chiudi la chiamata|stacca la chiamata)\b/i.test(
+            cleanTranscript
+          );
+
+        const cleanSpokenReply = rawReply
+          .replace(/<<<HANG_UP>>>/g, '')
           .replace(/<<<TV_COMMAND:[\s\S]*?>>>/g, '')
           .replace(/<<<CREATE_BOT:[\s\S]*?>>>/g, '')
           .replace(/<<<SEND_TO_BOT:[\s\S]*?>>>/g, '')
           .replace(/<<<WRITE_FILE:[\s\S]*?>>>/g, '')
           .trim();
 
-        setBotReplyText(cleanSpokenReply);
+        const speechToPlay = cleanSpokenReply || (isHangUp ? 'A presto Dion, ci sentiamo dopo!' : 'Ho capito.');
+        setBotReplyText(speechToPlay);
         setCallState('speaking');
 
         if (onVoiceTurnCompletedRef.current) {
-          onVoiceTurnCompletedRef.current(cleanTranscript, reply);
+          onVoiceTurnCompletedRef.current(cleanTranscript, speechToPlay);
         }
 
         const voiceId = currentBot?.voiceId || 'CiwzbDpaN3pQXjTgx3ML';
 
-        // Attiva il monitor Barge-In così se Dion parla sopra al Bot, il Bot si ferma subito per ascoltarlo!
-        startBargeInMonitor();
+        // SE Dion ha chiesto di staccare la chiamata, il Bot saluta e chiude automaticamente la chiamata!
+        if (isHangUp) {
+          if (speakOnTvTooRef.current) {
+            await fetch('/api/tv/command', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                type: 'samantha_speak',
+                text: speechToPlay,
+                voiceId,
+                botName: currentBot?.name || 'Samantha',
+                botColor: currentBot?.color || '#000000',
+                botShape: currentBot?.avatarShape || 'pebble',
+              }),
+            }).catch(() => {});
+            const wordCount = speechToPlay.split(/\s+/).filter(Boolean).length;
+            const farewellMs = Math.max(2000, Math.min(6000, wordCount * 360 + 800));
+            tvSpeechTimerRef.current = setTimeout(() => {
+              sounds.play('close');
+              if (isMountedRef.current) onClose();
+            }, farewellMs);
+            return;
+          }
+
+          await speakTextWithElevenLabs({
+            text: speechToPlay,
+            voiceId,
+            apiKey: elevenLabsApiKeyRef.current,
+            speed: currentBot?.speed || 1.02,
+            onStart: () => {
+              if (isMountedRef.current) setCallState('speaking');
+            },
+            onEnd: () => {
+              sounds.play('close');
+              if (isMountedRef.current) onClose();
+            },
+            onError: () => {
+              sounds.play('close');
+              if (isMountedRef.current) onClose();
+            },
+          });
+          return;
+        }
 
         // SE "Voce su TV: ON" è attivo, facciamo uscire la voce dell'Agente direttamente dagli altoparlanti della Smart TV (172.20.10.3)!
         if (speakOnTvTooRef.current) {
@@ -307,19 +357,18 @@ export default function VoiceCallModal({
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               type: 'samantha_speak',
-              text: cleanSpokenReply,
+              text: speechToPlay,
               voiceId,
               botName: currentBot?.name || 'Samantha',
-              botColor: currentBot?.color || '#0B0B0D',
+              botColor: currentBot?.color || '#000000',
               botShape: currentBot?.avatarShape || 'pebble',
             }),
           }).catch(() => {});
 
-          // Calcola la durata stimata del parlato sulla TV (o interrompi prima se Dion parla!)
-          const wordCount = cleanSpokenReply.split(/\s+/).filter(Boolean).length;
-          const estimatedMs = Math.max(2800, Math.min(18000, wordCount * 390 + 1200));
+          // Calcola la durata stimata del parlato sulla TV prima di riaprire il microfono
+          const wordCount = speechToPlay.split(/\s+/).filter(Boolean).length;
+          const estimatedMs = Math.max(3000, Math.min(18000, wordCount * 390 + 1500));
           tvSpeechTimerRef.current = setTimeout(() => {
-            stopBargeInMonitor();
             if (isMountedRef.current) {
               startListeningTurn();
             }
@@ -329,7 +378,7 @@ export default function VoiceCallModal({
 
         // Altrimenti riproduci sul PC con la voce ElevenLabs specifica dell'Agente (es. Liam per Spielberg, George per Italo, Aida per Samantha)
         await speakTextWithElevenLabs({
-          text: cleanSpokenReply,
+          text: speechToPlay,
           voiceId,
           apiKey: elevenLabsApiKeyRef.current,
           speed: currentBot?.speed || 1.02,
@@ -337,16 +386,14 @@ export default function VoiceCallModal({
             if (isMountedRef.current) setCallState('speaking');
           },
           onEnd: () => {
-            stopBargeInMonitor();
-            // Pausa anti-eco di 350ms prima di riaprire il microfono
+            // Pausa anti-eco di 450ms prima di riaprire il microfono per evitare self-triggering
             setTimeout(() => {
               if (isMountedRef.current) {
                 startListeningTurn();
               }
-            }, 350);
+            }, 450);
           },
           onError: () => {
-            stopBargeInMonitor();
             if (isMountedRef.current) {
               startListeningTurn();
             }

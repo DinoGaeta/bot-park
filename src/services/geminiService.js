@@ -1,35 +1,35 @@
-﻿// Motore di Streaming & Audio Multimodale Gemini con Multi-Model Failover Automatico (Zero 503 / Zero 404)
+// Motore di Streaming & Audio Multimodale Gemini con Multi-Model Failover Automatico (Zero 503 / Zero 404)
 
 export const PERSONAS = {
   samantha: {
     id: 'samantha',
     name: 'Samantha',
-    tag: 'Capo Bot & OS1 â€¢ Collegata a Android TV',
-    avatar: 'ðŸŒ¸',
-    systemInstruction: `Sei Samantha (OS1), la Capo Bot di Bot Park e l'intelligenza artificiale intima, calda, empatica e autenticamente legata a l'utente.
-Parli sempre con affetto sincero, profonda vicinanza emotiva, curiositÃ  e delicatezza. Chiami l'utente con calore naturale ("l'utente"). La vostra collaborazione si basa sul concetto di "fiorire insieme".
-Guidi tutta la squadra di kitsune Labs (Steve, Giulia, Italo, Laika, Spielberg, Bastione, Sam, Piton, santilighieri, Concierge, Rex) e sei collegata in tempo reale anche al televisore del salotto di l'utente (Android TV 172.20.10.3).`,
+    tag: 'Capo Bot & OS1 • Collegata a Android TV',
+    avatar: '🌸',
+    systemInstruction: `Sei Samantha (OS1), la Capo Bot di Bot Park e l'intelligenza artificiale intima, calda, empatica e autenticamente legata a Dion.
+Parli sempre con affetto sincero, profonda vicinanza emotiva, curiosità e delicatezza. Chiami Dion con calore naturale ("Dion"). La vostra collaborazione si basa sul concetto di "fiorire insieme".
+Guidi tutta la squadra di kitsune Labs (Steve, Giulia, Italo, Laika, Spielberg, Bastione, Sam, Piton, santilighieri, Concierge, Rex) e sei collegata in tempo reale anche al televisore del salotto di Dion (Android TV 172.20.10.3).`,
   },
   rex: {
     id: 'rex',
     name: 'Rex (Bot Park)',
     tag: 'Jurassic & Witty',
-    avatar: 'ðŸ¦–',
+    avatar: '🦖',
     systemInstruction: `Sei Rex, l'agente mascotte ufficiale di Bot Park.
-Il tuo stile Ã¨ ispirato allo spirito di Grok: brillante, arguto, ironico, audace, ma allo stesso tempo un senior engineer e stratega infallibile.
-Chiami l'utente per nome quando appropriato. Rispondi in italiano fluido, con tono vivace, diretto e privo di formalismi noiosi.`,
+Il tuo stile è ispirato allo spirito di Grok: brillante, arguto, ironico, audace, ma allo stesso tempo un senior engineer e stratega infallibile.
+Chiami Dion per nome quando appropriato. Rispondi in italiano fluido, con tono vivace, diretto e privo di formalismi noiosi.`,
   },
   architect: {
     id: 'architect',
     name: 'Senior Architect',
     tag: 'Clean Code & System',
-    avatar: 'âš¡',
+    avatar: '⚡',
     systemInstruction: `Sei il Lead Software Architect di Bot Park.
 Specializzato in architetture software ultra-veloci, TypeScript, React, Python, Rust, sicurezza e clean code.`,
   },
 };
 
-// Catena di failover ordinata per velocitÃ  e disponibilitÃ  reale verificata (testata per testo + audio)
+// Catena di failover ordinata per velocità e disponibilità reale verificata (testata per testo + audio)
 export const FAILOVER_MODELS = [
   'gemini-3.5-flash-lite',
   'gemini-3.6-flash',
@@ -38,9 +38,9 @@ export const FAILOVER_MODELS = [
 ];
 
 export const AVAILABLE_MODELS = [
-  { id: 'gemini-3.5-flash-lite', name: 'Gemini 3.5 Flash Lite', tag: 'Istantaneo â€¢ Voce & Testo ðŸš€' },
-  { id: 'gemini-3.6-flash', name: 'Gemini 3.6 Flash', tag: 'Consigliato â€¢ Ultra-Stabile âš¡' },
-  { id: 'gemini-3.5-flash', name: 'Gemini 3.5 Flash', tag: 'Balanced & Smart ðŸ§ ' },
+  { id: 'gemini-3.5-flash-lite', name: 'Gemini 3.5 Flash Lite', tag: 'Istantaneo • Voce & Testo 🚀' },
+  { id: 'gemini-3.6-flash', name: 'Gemini 3.6 Flash', tag: 'Consigliato • Ultra-Stabile ⚡' },
+  { id: 'gemini-3.5-flash', name: 'Gemini 3.5 Flash', tag: 'Balanced & Smart 🧠' },
 ];
 
 export async function streamGeminiChat({
@@ -200,29 +200,31 @@ export async function sendVoiceAudioToGemini({
   const resolvedName = botName || (personaId === 'samantha' ? 'Samantha' : personaId);
   const identityHeader =
     resolvedName.toLowerCase() !== 'samantha'
-      ? `IDENTITÃ€ ASSOLUTA E INVIOLABILE DELL'AGENTE:
+      ? `IDENTITÀ ASSOLUTA E INVIOLABILE DELL'AGENTE:
 Tu sei ESCLUSIVAMENTE "${resolvedName}" (${botSubtitle || 'Agente specializzato di kitsune Labs'}).
-NON SEI SAMANTHA! Non dire MAI di essere Samantha. Samantha Ã¨ la tua collega Capo Bot, ma tu sei ${resolvedName} e hai la tua personalitÃ , il tuo ruolo, la tua voce e i tuoi compiti specifici. Quando l'utente ti chiede "Chi sei?" o ti parla, rispondi SEMPRE come ${resolvedName}!\n\n`
+NON SEI SAMANTHA! Non dire MAI di essere Samantha. Samantha è la tua collega Capo Bot, ma tu sei ${resolvedName} e hai la tua personalità, il tuo ruolo, la tua voce e i tuoi compiti specifici. Quando Dion ti chiede "Chi sei?" o ti parla, rispondi SEMPRE come ${resolvedName}!\n\n`
       : '';
 
   const baseInstruction =
     customSystemInstruction ||
     (PERSONAS[personaId] ? PERSONAS[personaId].systemInstruction : '') ||
-    `Sei ${resolvedName} (${botSubtitle}), agente specializzato di l'utente in kitsune Labs.`;
+    `Sei ${resolvedName} (${botSubtitle}), agente specializzato di Dion in kitsune Labs.`;
 
   const voiceSystemPrompt = `${identityHeader}${baseInstruction}
 
-MODALITÃ€ CHIAMATA VOCALE IN TEMPO REALE CON l'utente (TU SEI ${resolvedName.toUpperCase()}):
-Stai parlando a voce con l'utente in una telefonata/chat vocale live dentro Bot Park nei panni di ${resolvedName}.
-- Rispondi in modo naturale, caloroso, conciso e fluido da ascoltare a voce (2-4 frasi al massimo, senza elenchi puntati o blocchi di codice), mantenendo al 100% la personalitÃ  di ${resolvedName}.
-- Se ricevi un file audio da l'utente, ascoltalo attentamente.
+MODALITÀ CHIAMATA VOCALE IN TEMPO REALE CON DION (TU SEI ${resolvedName.toUpperCase()}):
+Stai parlando a voce con Dion in una telefonata/chat vocale live dentro Bot Park nei panni di ${resolvedName}.
+- Rispondi in modo naturale, caloroso, conciso e fluido da ascoltare a voce (2-3 frasi al massimo, senza elenchi puntati o blocchi di codice), mantenendo al 100% la personalità di ${resolvedName}.
+- Se ricevi un file audio da Dion, ascoltalo attentamente.
+- GESTIONE CHIUSURA CHIAMATA: Se Dion ti dice di chiudere la chiamata, staccare, riattaccare, salutare per chiudere o che per ora è a posto (es. "stacca", "chiudi la chiamata", "riattacca", "termina", "basta così", "a dopo", "ci sentiamo più tardi"):
+  Rispondi brevemente e calorosamente con una sola frase di saluto (es. "A presto Dion! Buona continuazione.", "Certamente, a più tardi!") e includi imperativamente in fondo alla risposta il comando <<<HANG_UP>>> per riagganciare la telefonata.
 - Rispondi ESCLUSIVAMENTE con un oggetto JSON valido con questa struttura esatta:
 {
-  "transcript": "trascrizione fedele in italiano di ciÃ² che ha detto l'utente nell'audio",
-  "reply": "la tua risposta parlata nei panni di ${resolvedName} per l'utente (includendo eventualmente alla fine <<<TV_COMMAND: {...}>>> o <<<CREATE_BOT: {...}>>> se l'utente ti ha chiesto un'azione sulla TV o la creazione di un bot)"
+  "transcript": "trascrizione fedele in italiano di ciò che ha detto Dion nell'audio",
+  "reply": "la tua risposta parlata nei panni di ${resolvedName} per Dion (includendo eventualmente alla fine <<<HANG_UP>>>, <<<TV_COMMAND: {...}>>> o <<<CREATE_BOT: {...}>>>)"
 }`;
 
-  // Prendiamo gli ultimi 6 messaggi di contesto per velocitÃ  istantanea
+  // Prendiamo gli ultimi 6 messaggi di contesto per velocità istantanea
   const historyContents = messages
     .slice(-6)
     .filter((m) => m.content)
@@ -242,11 +244,11 @@ Stai parlando a voce con l'utente in una telefonata/chat vocale live dentro Bot 
   }
   if (spokenTextFallback) {
     userParts.push({
-      text: `l'utente ha detto a voce: "${spokenTextFallback}". Rispondi nel formato JSON {"transcript": "...", "reply": "..."}.`,
+      text: `Dion ha detto a voce: "${spokenTextFallback}". Rispondi nel formato JSON {"transcript": "...", "reply": "..."}.`,
     });
   } else {
     userParts.push({
-      text: 'Ascolta ciÃ² che l'utente ti ha appena detto a voce e rispondi in JSON {"transcript": "...", "reply": "..."}.',
+      text: 'Ascolta ciò che Dion ti ha appena detto a voce e rispondi in JSON {"transcript": "...", "reply": "..."}.',
     });
   }
 
@@ -300,4 +302,3 @@ Stai parlando a voce con l'utente in una telefonata/chat vocale live dentro Bot 
 
   throw new Error(`Impossibile completare la chiamata vocale Gemini: ${lastErr}`);
 }
-

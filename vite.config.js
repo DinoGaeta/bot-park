@@ -304,9 +304,12 @@ function botParkBackendPlugin() {
 
               await runAdb(['shell', 'input keyevent 224']).catch(() => {});
               const escaped = escapeAndroidShellSingleQuotes(queryText);
+              const escapedName = escapeAndroidShellSingleQuotes(body.botName || 'Samantha');
+              const escapedColor = escapeAndroidShellSingleQuotes(body.botColor || '#FF3B9A');
+              const escapedShape = escapeAndroidShellSingleQuotes(body.botShape || 'pebble');
               await runAdb([
                 'shell',
-                `am startservice -n com.kage.jarvis/.JarvisOverlayService -a com.kage.jarvis.TEST_QUERY --es query ${escaped}`,
+                `am startservice -n com.kage.jarvis/.JarvisOverlayService -a com.kage.jarvis.TEST_QUERY --es query ${escaped} --es bot_name ${escapedName} --es bot_color ${escapedColor} --es bot_shape ${escapedShape}`,
               ]);
 
               let newTurn = null;

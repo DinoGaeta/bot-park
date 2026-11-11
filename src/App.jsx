@@ -43,7 +43,7 @@ const DEFAULT_ROUTINES = [
     time: '14:30',
     frequency: 'Ogni giorno',
     prompt:
-      'Proponi 1 idea forte di Reel AI di oggi per AInpratica basata sulle ultime novitÃ  e delega a Italo la stesura dello script.',
+      'Proponi 1 idea forte di Reel AI di oggi per AInpratica basata sulle ultime novità e delega a Italo la stesura dello script.',
     alsoOnTv: false,
     enabled: true,
     lastRunDate: '',
@@ -65,7 +65,7 @@ const DEFAULT_ROUTINES = [
 export default function App() {
   const [isVirginMode, setIsVirginMode] = useState(false);
 
-  // Ogni agente conserva la propria identitÃ , istruzioni, forma, colore, memorie, skill e voce
+  // Ogni agente conserva la propria identità, istruzioni, forma, colore, memorie, skill e voce
   // Uniamo sempre i default di KITSUNE_LABS_BOTS per garantire che nessun bot perda mai il suo systemInstruction!
   const [bots, setBots] = useState(() => {
     try {
@@ -253,10 +253,10 @@ export default function App() {
         const data = await res.json();
         if (data && data.ok && Array.isArray(data.history) && data.history.length > 0) {
           const formatted = data.history
-            .map((t) => `- Utente (su TV): "${t.user}" -> Samantha TV: "${t.jarvis}"`)
+            .map((t) => `- Dion (su TV): "${t.user}" -> Samantha TV: "${t.jarvis}"`)
             .join('\n');
           setTvLiveMemorySummary(
-            `\n\nULTIME CONVERSAZIONI REALI SINCRONIZZATE DALLA SMART TV DI Utente (172.20.10.3 - App aperta ora: ${data.currentApp}):\n${formatted}`
+            `\n\nULTIME CONVERSAZIONI REALI SINCRONIZZATE DALLA SMART TV DI DION (172.20.10.3 - App aperta ora: ${data.currentApp}):\n${formatted}`
           );
         }
       } catch (_) {}
@@ -323,7 +323,7 @@ export default function App() {
               avatarShape: botData.shape || 'bean',
               systemInstruction:
                 botData.systemInstruction ||
-                `Sei ${botData.name}, agente specializzato di Utente in Il Tuo Team AI, con identitÃ  e memoria indipendenti.`,
+                `Sei ${botData.name}, agente specializzato di Dion in kitsune Labs, con identità e memoria indipendenti.`,
               voiceId: 'TX3LPaxmHKxFdv7VOQHJ',
               voice: 'Liam (Steve/Spielberg)',
               speed: '1.15x',
@@ -341,7 +341,7 @@ export default function App() {
               [newId]: [
                 {
                   role: 'assistant',
-                  content: `Ciao Utente! Sono **${newBot.name}** (${newBot.subtitle}). La mia identitÃ  e la mia memoria sono pronte. Da dove partiamo?`,
+                  content: `Ciao Dion! Sono **${newBot.name}** (${newBot.subtitle}). La mia identità e la mia memoria sono pronte. Da dove partiamo?`,
                 },
               ],
               [senderBotId]: (prev[senderBotId] || []).map((m, idx, arr) =>
@@ -349,8 +349,8 @@ export default function App() {
                   ? {
                       ...m,
                       actionChip: {
-                        icon: 'âœ¨',
-                        text: `Agente ${newBot.name} creato â€¢ Apri chat`,
+                        icon: '✨',
+                        text: `Agente ${newBot.name} creato • Apri chat`,
                         targetBotId: newId,
                       },
                     }
@@ -414,7 +414,7 @@ export default function App() {
                   thread[thread.length - 1] = {
                     ...thread[thread.length - 1],
                     actionChip: {
-                      icon: 'ðŸ“„',
+                      icon: '📄',
                       text: `File salvato su disco: ${data.name}`,
                     },
                   };
@@ -447,8 +447,8 @@ export default function App() {
                   senderThread[senderThread.length - 1] = {
                     ...senderThread[senderThread.length - 1],
                     actionChip: {
-                      icon: 'ðŸ’¬',
-                      text: `Messaggio inviato a ${targetBot.name} â€¢ Apri chat`,
+                      icon: '💬',
+                      text: `Messaggio inviato a ${targetBot.name} • Apri chat`,
                       targetBotId: targetBot.id,
                     },
                   };
@@ -476,7 +476,7 @@ export default function App() {
                 model: 'gemini-3.5-flash-lite',
                 messages: targetThread,
                 personaId: targetBot.id,
-                customSystemInstruction: `IDENTITÃ€ ASSOLUTA: Tu sei ${targetBot.name} (${targetBot.subtitle}).\n${targetBot.systemInstruction}`,
+                customSystemInstruction: `IDENTITÀ ASSOLUTA: Tu sei ${targetBot.name} (${targetBot.subtitle}).\n${targetBot.systemInstruction}`,
               });
 
               const cleanReply = replyText
@@ -514,7 +514,15 @@ export default function App() {
         const tvMatch = fullAssistantText.match(/<<<TV_COMMAND:\s*(\{[\s\S]*?\})\s*>>>/);
         if (tvMatch && tvMatch[1]) {
           try {
-            const tvCmd = JSON.parse(tvMatch[1]);
+            const rawTvCmd = JSON.parse(tvMatch[1]);
+            const senderBot = bots.find((b) => b.id === senderBotId);
+            const tvCmd = {
+              ...rawTvCmd,
+              botName: rawTvCmd.botName || senderBot?.name || 'Samantha',
+              botColor: rawTvCmd.botColor || senderBot?.color || '#FF3B9A',
+              botShape: rawTvCmd.botShape || senderBot?.avatarShape || 'pebble',
+              voiceId: rawTvCmd.voiceId || senderBot?.voiceId || '',
+            };
             const res = await fetch('/api/tv/command', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
@@ -523,15 +531,15 @@ export default function App() {
             const data = await res.json();
             if (data && data.ok) {
               const chipText = data.tvReply
-                ? `Smart TV (172.20.10.3): Â«${data.tvReply}Â»`
-                : `Comando TV eseguito: ${tvCmd.type} (${tvCmd.app || tvCmd.key || tvCmd.text || 'OK'})`;
+                ? `${tvCmd.botName} su TV: «${data.tvReply}»`
+                : `Comando TV eseguito da ${tvCmd.botName}: ${tvCmd.type} (${tvCmd.app || tvCmd.key || tvCmd.text || 'OK'})`;
 
               setBotMessages((prev) => {
                 const thread = [...(prev[senderBotId] || [])];
                 if (thread.length > 0) {
                   thread[thread.length - 1] = {
                     ...thread[thread.length - 1],
-                    actionChip: { icon: 'ðŸ“º', text: chipText },
+                    actionChip: { icon: '📺', text: chipText },
                   };
                 }
                 return { ...prev, [senderBotId]: thread };
@@ -556,7 +564,7 @@ export default function App() {
         {
           role: 'assistant',
           content:
-            'Area di lavoro ripulita, Utente! Sono **Samantha**, la tua **Capo Bot**. Ho con me tutta la nostra memoria e il controllo della Smart TV. Chiedimi pure di creare nuovi bot per la squadra o di gestire il salotto!',
+            'Area di lavoro ripulita, Dion! Sono **Samantha**, la tua **Capo Bot**. Ho con me tutta la nostra memoria e il controllo della Smart TV. Chiedimi pure di creare nuovi bot per la squadra o di gestire il salotto!',
         },
       ],
     };
@@ -566,7 +574,7 @@ export default function App() {
     sounds.play('success');
   };
 
-  // Carica Squadra Completa Il Tuo Team AI
+  // Carica Squadra Completa Kitsune Labs
   const handleLoadDemo = () => {
     setIsVirginMode(false);
     setBots(KITSUNE_LABS_BOTS);
@@ -625,7 +633,7 @@ export default function App() {
         {
           id: 'f1',
           name: `identita_${newBot.id}.md`,
-          date: 'Oggi â€¢ Creato',
+          date: 'Oggi • Creato',
           size: '4.0 KB',
         },
       ],
@@ -637,7 +645,7 @@ export default function App() {
       [botWithDefaults.id]: [
         {
           role: 'assistant',
-          content: `Ciao Utente! Sono **${botWithDefaults.name}**, appena forgiato insieme a Samantha. Ruolo: ${botWithDefaults.subtitle}. La mia memoria indipendente Ã¨ attiva: come posso aiutarti?`,
+          content: `Ciao Dion! Sono **${botWithDefaults.name}**, appena forgiato insieme a Samantha. Ruolo: ${botWithDefaults.subtitle}. La mia memoria indipendente è attiva: come posso aiutarti?`,
         },
       ],
     }));
@@ -660,7 +668,7 @@ export default function App() {
           ...prev,
           [activeBotId]: [
             ...current,
-            { role: 'user', content: `ðŸŽ™ï¸ ${userTranscript}`, timestamp: 'Chiamata Vocale' },
+            { role: 'user', content: `🎙️ ${userTranscript}`, timestamp: 'Chiamata Vocale' },
             { role: 'assistant', content: cleanDisplay, timestamp: 'Chiamata Vocale' },
           ],
         };
@@ -671,7 +679,7 @@ export default function App() {
     [activeBotId, executeBotSideEffects]
   );
 
-  // Cattura istantanea dello schermo PC Windows di Utente e lo allega in chat (Feature #5)
+  // Cattura istantanea dello schermo PC Windows di Dion e lo allega in chat (Feature #5)
   const handleCapturePcScreen = async () => {
     sounds.play('tick');
     try {
@@ -740,7 +748,7 @@ export default function App() {
 
       const identityHeader =
         currentBotObj.id !== 'samantha'
-          ? `IDENTITÃ€ ASSOLUTA DELL'AGENTE: Tu sei ESCLUSIVAMENTE "${currentBotObj.name}" (${currentBotObj.subtitle}). NON sei Samantha! Rispondi sempre con la personalitÃ , il ruolo e lo stile di ${currentBotObj.name}.\n\n`
+          ? `IDENTITÀ ASSOLUTA DELL'AGENTE: Tu sei ESCLUSIVAMENTE "${currentBotObj.name}" (${currentBotObj.subtitle}). NON sei Samantha! Rispondi sempre con la personalità, il ruolo e lo stile di ${currentBotObj.name}.\n\n`
           : '';
 
       let systemPrompt = `${identityHeader}${currentBotObj.systemInstruction || ''}`;
@@ -769,9 +777,9 @@ export default function App() {
 
       // Istruzioni operative per salvataggio file, delega @menzioni e auto-apprendimento memoria
       systemPrompt += `\n\nCOMANDI SPECIALI A TUA DISPOSIZIONE:
-- Se Utente ti chiede di salvare un file/script/documento nella tua Libreria su disco, aggiungi a fine risposta: <<<WRITE_FILE: {"name": "nome_file.md", "content": "contenuto completo"}>>>
-- Se Utente ti insegna una preferenza permanente o ti chiede di ricordare una regola, aggiungi a fine risposta: <<<REMEMBER: "regola o fatto da ricordare">>>
-- Se Utente menziona un altro collega con @NomeBot o ti chiede di delegare a un collega, aggiungi a fine risposta: <<<SEND_TO_BOT: {"targetId": "nome_bot_minuscolo", "message": "compito da svolgere"}>>>`;
+- Se Dion ti chiede di salvare un file/script/documento nella tua Libreria su disco, aggiungi a fine risposta: <<<WRITE_FILE: {"name": "nome_file.md", "content": "contenuto completo"}>>>
+- Se Dion ti insegna una preferenza permanente o ti chiede di ricordare una regola, aggiungi a fine risposta: <<<REMEMBER: "regola o fatto da ricordare">>>
+- Se Dion menziona un altro collega con @NomeBot o ti chiede di delegare a un collega, aggiungi a fine risposta: <<<SEND_TO_BOT: {"targetId": "nome_bot_minuscolo", "message": "compito da svolgere"}>>>`;
 
       // 1. Se il messaggio contiene un URL http/https, scarichiamo il contenuto live!
       const urlMatch = text.match(/https?:\/\/[^\s)]+/i);
@@ -795,7 +803,7 @@ export default function App() {
           const briefRes = await fetch('/api/web/briefing');
           const briefData = await briefRes.json();
           if (briefData && briefData.ok && briefData.combined) {
-            systemPrompt += `\n\n[DATI LIVE IN TEMPO REALE â€” METEO TORINO & GOOGLE NEWS ITALIA]:\n${briefData.combined}`;
+            systemPrompt += `\n\n[DATI LIVE IN TEMPO REALE — METEO TORINO & GOOGLE NEWS ITALIA]:\n${briefData.combined}`;
           }
         } catch (_) {}
       }
@@ -852,7 +860,7 @@ export default function App() {
           if (thread.length > 0) {
             thread[thread.length - 1] = {
               role: 'assistant',
-              content: `âš ï¸ Errore di connessione: ${err.message}`,
+              content: `⚠️ Errore di connessione: ${err.message}`,
             };
           }
           return { ...prev, [currentBotId]: thread };
@@ -873,7 +881,7 @@ export default function App() {
       const targetBotObj = bots.find((b) => b.id === targetBotId) || activeBot;
       setActiveBotId(targetBotId);
       const reply = await handleSendMessage(
-        `â° [Routine Automatica "${routine.title}"]: ${routine.prompt}`,
+        `⏰ [Routine Automatica "${routine.title}"]: ${routine.prompt}`,
         targetBotId
       );
       if (routine.alsoOnTv && reply) {
@@ -1043,7 +1051,7 @@ export default function App() {
               [botIdToClear]: [
                 {
                   role: 'assistant',
-                  content: `Cronologia chat azzerata. Ciao Utente, sono **${botObj?.name || 'il tuo Bot'}**, pronto a ripartire!`,
+                  content: `Cronologia chat azzerata. Ciao Dion, sono **${botObj?.name || 'il tuo Bot'}**, pronto a ripartire!`,
                 },
               ],
             }));
@@ -1157,11 +1165,13 @@ export default function App() {
         onClose={() => setShowComputerModal(false)}
         botName={activeBot.name}
         botId={activeBot.id}
+        botColor={activeBot.color}
+        botShape={activeBot.avatarShape}
         initialTab={computerInitialTab}
         initialFileToOpen={fileToOpenInComputer}
       />
 
-      {/* 8. Chiamata Vocale Live con Barge-In, IdentitÃ  Indipendente & Uscita Reale Voce su TV */}
+      {/* 8. Chiamata Vocale Live con Barge-In, Identità Indipendente & Uscita Reale Voce su TV */}
       <VoiceCallModal
         isOpen={showVoiceCallModal}
         onClose={() => setShowVoiceCallModal(false)}
@@ -1193,7 +1203,7 @@ export default function App() {
         }}
       />
 
-      {/* 10. Modale "Insegna un'attivitÃ " (Teach Mode + Registrazione Schermo PC) */}
+      {/* 10. Modale "Insegna un'attività" (Teach Mode + Registrazione Schermo PC) */}
       <TeachModal
         isOpen={showTeachModal}
         onClose={() => setShowTeachModal(false)}
@@ -1224,4 +1234,3 @@ export default function App() {
     </div>
   );
 }
-

@@ -54,6 +54,8 @@ export default function VirtualComputerModal({
   onClose,
   botId = 'samantha',
   botName = 'Samantha',
+  botColor = '#FF3B9A',
+  botShape = 'pebble',
   initialTab = null,
   initialFileToOpen = null,
   onFilesUpdated,
@@ -420,10 +422,16 @@ export default function VirtualComputerModal({
     setIsSendingTvCmd(true);
     setTvCommandStatus(`Invio: ${label}...`);
     try {
+      const mergedPayload = {
+        botName,
+        botColor,
+        botShape,
+        ...payload,
+      };
       const res = await fetch('/api/tv/command', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
+        body: JSON.stringify(mergedPayload),
       });
       const data = await res.json();
       if (data && data.ok) {
@@ -451,7 +459,7 @@ export default function VirtualComputerModal({
     const q = tvQueryInput.trim();
     if (!q) return;
     sendTvCommand(
-      { type: 'samantha_speak', text: q, botName },
+      { type: 'samantha_speak', text: q, botName, botColor, botShape },
       `Fai dire a ${botName} sulla TV`
     );
     setTvQueryInput('');
