@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import SidebarLeft from './components/SidebarLeft';
 import ChatCenter from './components/ChatCenter';
 import SidebarRight from './components/SidebarRight';
@@ -234,61 +234,97 @@ export default function App() {
   const activeMessages = botMessages[activeBotId] || [];
   const abortControllerRef = useRef(null);
   const speechRecognitionRef = useRef(null);
+  const isSyncedReadyRef = useRef(false);
 
-  // Carica i secret locali da SamanthaSecure + sincronizza la memoria reale dalla Smart TV (172.20.10.3)
+  // Carica i secret locali da SamanthaSecure + sincronizza TV e memoria condivisa su disco PC
   useEffect(() => {
     async function initApp() {
-      if (window.botParkAPI && window.botParkAPI.getSecrets) {
+      try {
+        if (window.botParkAPI && window.botParkAPI.getSecrets) {
+          try {
+            const secrets = await window.botParkAPI.getSecrets();
+            if (secrets) {
+              if (secrets.geminiApiKey) setGeminiApiKey(secrets.geminiApiKey);
+              if (secrets.elevenLabsApiKey) setElevenLabsApiKey(secrets.elevenLabsApiKey);
+            }
+          } catch (_) {}
+        }
+
         try {
-          const secrets = await window.botParkAPI.getSecrets();
-          if (secrets) {
-            if (secrets.geminiApiKey) setGeminiApiKey(secrets.geminiApiKey);
-            if (secrets.elevenLabsApiKey) setElevenLabsApiKey(secrets.elevenLabsApiKey);
+          const res = await fetch('/api/tv/status');
+          const data = await res.json();
+          if (data && data.ok && Array.isArray(data.history) && data.history.length > 0) {
+            const formatted = data.history
+              .map((t) => `- Dion (su TV): "${t.user}" -> Samantha TV: "${t.jarvis}"`)
+              .join('\n');
+            setTvLiveMemorySummary(
+              `\n\nULTIME CONVERSAZIONI REALI SINCRONIZZATE DALLA SMART TV DI DION (172.20.10.3 - App aperta ora: ${data.currentApp}):\n${formatted}`
+            );
           }
         } catch (_) {}
-      }
 
-      try {
-        const res = await fetch('/api/tv/status');
-        const data = await res.json();
-        if (data && data.ok && Array.isArray(data.history) && data.history.length > 0) {
-          const formatted = data.history
-            .map((t) => `- Dion (su TV): "${t.user}" -> Samantha TV: "${t.jarvis}"`)
-            .join('\n');
-          setTvLiveMemorySummary(
-            `\n\nULTIME CONVERSAZIONI REALI SINCRONIZZATE DALLA SMART TV DI DION (172.20.10.3 - App aperta ora: ${data.currentApp}):\n${formatted}`
-          );
-        }
-      } catch (_) {}
+        // Sincronizza memorie agenti, skill e chat salvate sul disco del PC tra Electron, Browser desktop e Mobile LAN
+        const isMobileClient =
+          window.innerWidth < 768 || window.location.search.includes('mobile=1');
+        const hadLocalBots = Boolean(localStorage.getItem(STORAGE_BOTS_KEY));
+        const localSyncAt = Number(localStorage.getItem('bot_park_last_sync_at') || 0);
 
-      // Se l'app viene aperta su iPhone/Android via Wi-Fi LAN, carica lo stato sincronizzato dal PC
-      if (window.innerWidth < 768 || window.location.search.includes('mobile=1')) {
         try {
           const syncRes = await fetch('/api/mobile/sync');
           const syncData = await syncRes.json();
           if (syncData?.ok && syncData.state) {
-            if (Array.isArray(syncData.state.bots) && syncData.state.bots.length > 0) {
-              setBots(syncData.state.bots);
+            const diskUpdatedAt = Number(syncData.state.updatedAt || 0);
+            const shouldHydrateFromDisk =
+              isMobileClient || !hadLocalBots || diskUpdatedAt > localSyncAt;
+
+            if (shouldHydrateFromDisk) {
+              if (Array.isArray(syncData.state.bots) && syncData.state.bots.length > 0) {
+                setBots(
+                  syncData.state.bots.map((b) => {
+                    const def = KITSUNE_LABS_BOTS.find((d) => d.id === b.id);
+                    return def
+                      ? {
+                          ...def,
+                          ...b,
+                          systemInstruction: b.systemInstruction || def.systemInstruction,
+                          voiceId: b.voiceId || def.voiceId,
+                          color: b.color || def.color,
+                        }
+                      : b;
+                  })
+                );
+              }
+              if (syncData.state.botMessages && typeof syncData.state.botMessages === 'object') {
+                setBotMessages(syncData.state.botMessages);
+              }
+              if (Array.isArray(syncData.state.routines) && syncData.state.routines.length > 0) {
+                setRoutines(syncData.state.routines);
+              }
+              if (diskUpdatedAt > 0) {
+                localStorage.setItem('bot_park_last_sync_at', String(diskUpdatedAt));
+              }
             }
-            if (syncData.state.botMessages && typeof syncData.state.botMessages === 'object') {
-              setBotMessages(syncData.state.botMessages);
+
+            if (syncData.state.geminiApiKey) {
+              setGeminiApiKey((prev) => prev || syncData.state.geminiApiKey);
             }
-            if (Array.isArray(syncData.state.routines) && syncData.state.routines.length > 0) {
-              setRoutines(syncData.state.routines);
+            if (syncData.state.elevenLabsApiKey) {
+              setElevenLabsApiKey((prev) => prev || syncData.state.elevenLabsApiKey);
             }
-            if (syncData.state.geminiApiKey) setGeminiApiKey(syncData.state.geminiApiKey);
-            if (syncData.state.elevenLabsApiKey) setElevenLabsApiKey(syncData.state.elevenLabsApiKey);
           }
         } catch (_) {}
-      }
 
-      sounds.play('open');
+        sounds.play('open');
+      } finally {
+        isSyncedReadyRef.current = true;
+      }
     }
     initApp();
   }, []);
 
-  // Sincronizza automaticamente in background lo stato con il bridge Mobile LAN (/api/mobile/sync)
+  // Sincronizza automaticamente in background lo stato con il disco del PC (/api/mobile/sync -> _mobile_sync_state.json + memoria_agente.md)
   useEffect(() => {
+    if (!isSyncedReadyRef.current) return;
     const timer = setTimeout(() => {
       fetch('/api/mobile/sync', {
         method: 'POST',
@@ -300,7 +336,16 @@ export default function App() {
           geminiApiKey,
           elevenLabsApiKey,
         }),
-      }).catch(() => {});
+      })
+        .then((r) => r.json())
+        .then((data) => {
+          if (data?.updatedAt) {
+            try {
+              localStorage.setItem('bot_park_last_sync_at', String(data.updatedAt));
+            } catch {}
+          }
+        })
+        .catch(() => {});
     }, 900);
     return () => clearTimeout(timer);
   }, [bots, botMessages, routines, geminiApiKey, elevenLabsApiKey]);

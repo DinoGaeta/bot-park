@@ -259,6 +259,17 @@ export default function VoiceCallModal({
 
       try {
         const base64Audio = await blobToBase64(audioBlob);
+        const botMemoriesText =
+          Array.isArray(currentBot?.memories) && currentBot.memories.length > 0
+            ? `\n\n[MEMORIE PERMANENTEMENTE SALVATE SU DION E SUL PROGETTO (${currentBot.memories.length})]:\n` +
+              currentBot.memories.slice(-50).map((m) => `- (${m.date}) ${m.text}`).join('\n')
+            : '';
+        const botSkillsText =
+          Array.isArray(currentBot?.skills) && currentBot.skills.length > 0
+            ? `\n\n[SKILL OPERATIVE APPRESE]:\n` +
+              currentBot.skills.map((s) => `- ${s.title}: ${s.steps}`).join('\n')
+            : '';
+
         const { transcript, reply } = await sendVoiceAudioToGemini({
           apiKey: geminiApiKeyRef.current,
           audioBase64: base64Audio,
@@ -268,7 +279,7 @@ export default function VoiceCallModal({
           personaId: currentBot?.id || 'samantha',
           botName: currentBot?.name || 'Samantha',
           botSubtitle: currentBot?.subtitle || '',
-          customSystemInstruction: currentBot?.systemInstruction || '',
+          customSystemInstruction: `${currentBot?.systemInstruction || ''}${botMemoriesText}${botSkillsText}`,
         });
 
         if (!isMountedRef.current) return;
@@ -294,6 +305,7 @@ export default function VoiceCallModal({
           .replace(/<<<CREATE_BOT:[\s\S]*?>>>/g, '')
           .replace(/<<<SEND_TO_BOT:[\s\S]*?>>>/g, '')
           .replace(/<<<WRITE_FILE:[\s\S]*?>>>/g, '')
+          .replace(/<<<REMEMBER:[\s\S]*?>>>/g, '')
           .trim();
 
         const speechToPlay = cleanSpokenReply || (isHangUp ? 'A presto Dion, ci sentiamo dopo!' : 'Ho capito.');

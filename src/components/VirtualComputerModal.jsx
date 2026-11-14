@@ -227,6 +227,28 @@ export default function VirtualComputerModal({
     return () => clearInterval(interval);
   }, [isOpen, openWindow, autoRefreshTv, fetchTvStatusAndScreen]);
 
+  // Sincronizza la barra degli indirizzi e il titolo scheda quando l'utente naviga nel proxy web
+  useEffect(() => {
+    if (!isOpen || isElectron) return;
+    const onProxyNav = (ev) => {
+      if (ev?.data?.type !== 'BOTPARK_PROXY_NAV' || !ev.data.url) return;
+      setChromeTabs((prev) =>
+        prev.map((t) =>
+          t.id === activeTabId
+            ? {
+                ...t,
+                inputUrl: ev.data.url,
+                title: ev.data.title || t.title,
+              }
+            : t
+        )
+      );
+      setIsLoadingWeb(false);
+    };
+    window.addEventListener('message', onProxyNav);
+    return () => window.removeEventListener('message', onProxyNav);
+  }, [isOpen, isElectron, activeTabId]);
+
   if (!isOpen) return null;
 
   const activeChromeTab =
@@ -275,19 +297,7 @@ export default function VirtualComputerModal({
 
     if (!isElectron) {
       setIsLoadingWeb(true);
-      try {
-        const res = await fetch('/api/web/fetch', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ url: finalUrl }),
-        });
-        const data = await res.json();
-        if (data && data.ok) {
-          updateActiveChromeTab({ title: data.title || title });
-          setWebFallbackHtml(data.excerpt || '');
-        }
-      } catch {}
-      setIsLoadingWeb(false);
+      setWebFallbackHtml('');
     }
   };
 
@@ -816,24 +826,14 @@ export default function VirtualComputerModal({
                           allowpopups="true"
                         />
                       ) : (
-                        /* Iframe + Fallback live quando aperto su browser normale o mobile */
+                        /* Proxy HTML locale quando aperto su browser normale o mobile */
                         <div className="w-full h-full flex flex-col">
                           <iframe
-                            src={activeChromeTab.url}
+                            src={`/api/web/proxy?url=${encodeURIComponent(activeChromeTab.url)}`}
+                            onLoad={() => setIsLoadingWeb(false)}
                             title="Chrome Viewport"
                             className="w-full flex-1 border-0 bg-white"
-                            sandbox="allow-same-origin allow-scripts allow-forms allow-popups"
                           />
-                          {webFallbackHtml && (
-                            <div className="h-44 border-t border-gray-200 bg-gray-50 p-3 overflow-y-auto text-xs text-gray-700 select-text">
-                              <div className="font-bold text-gray-900 mb-1">
-                                Contenuto Live letto da {botName}:
-                              </div>
-                              <div className="whitespace-pre-wrap leading-relaxed">
-                                {webFallbackHtml}
-                              </div>
-                            </div>
-                          )}
                         </div>
                       )}
                     </div>

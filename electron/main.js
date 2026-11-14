@@ -76,8 +76,14 @@ function createWindow() {
   });
 
   mainWindow.once('ready-to-show', () => {
+    mainWindow.setAlwaysOnTop(true);
     mainWindow.show();
     mainWindow.focus();
+    setTimeout(() => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.setAlwaysOnTop(false);
+      }
+    }, 600);
   });
 
   // Log diagnostico del renderer (errori JS / caricamento) per capire eventuali schermate nere

@@ -183,6 +183,218 @@ async function readJsonBody(req) {
   return JSON.parse(bodyStr || '{}');
 }
 
+function escapeHtml(str) {
+  return String(str || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function decodeHtmlEntities(str) {
+  return String(str || '')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&#x27;/g, "'")
+    .replace(/&nbsp;/g, ' ');
+}
+
+function unwrapProxyTargetUrl(rawInput) {
+  let current = String(rawInput || '').trim();
+  for (let i = 0; i < 3; i++) {
+    if (!current.includes('/api/web/proxy')) break;
+    try {
+      const parsed = new URL(current, 'http://localhost:5173');
+      const inner = parsed.searchParams.get('url');
+      if (!inner) break;
+      current = inner.trim();
+    } catch {
+      break;
+    }
+  }
+  return current;
+}
+
+async function buildProxySearchHtml(query, originalUrl) {
+  const cleanQ = String(query || '').trim();
+  const results = [];
+  const seenUrls = new Set();
+
+  const [ddgRes, wikiRes] = await Promise.allSettled([
+    fetch(`https://html.duckduckgo.com/html/?q=${encodeURIComponent(cleanQ)}`, {
+      signal: AbortSignal.timeout(7000),
+      headers: {
+        'User-Agent':
+          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/125.0.0.0 Safari/537.36',
+        'Accept-Language': 'it-IT,it;q=0.9,en;q=0.8',
+      },
+    }),
+    fetch(
+      `https://it.wikipedia.org/w/api.php?action=opensearch&search=${encodeURIComponent(
+        cleanQ
+      )}&limit=5&format=json`,
+      {
+        signal: AbortSignal.timeout(5000),
+        headers: { 'User-Agent': 'BotParkProxy/1.0' },
+      }
+    ),
+  ]);
+
+  if (ddgRes.status === 'fulfilled' && ddgRes.value.ok) {
+    try {
+      const ddgHtml = await ddgRes.value.text();
+      const blocks = ddgHtml.split(/<div[^>]*class="[^"]*result[^"]*results_links[^"]*"/i).slice(1);
+      for (const block of blocks) {
+        if (results.length >= 10) break;
+        const linkMatch = block.match(/<a[^>]+class="[^"]*result__a[^"]*"[^>]+href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/i);
+        if (!linkMatch) continue;
+        let href = decodeHtmlEntities(linkMatch[1]);
+        if (href.startsWith('//')) href = `https:${href}`;
+        if (href.includes('uddg=')) {
+          try {
+            const u = new URL(href, 'https://html.duckduckgo.com');
+            href = u.searchParams.get('uddg') || href;
+          } catch {}
+        }
+        if (!/^https?:\/\//i.test(href) || href.includes('duckduckgo.com/y.js') || seenUrls.has(href)) continue;
+        seenUrls.add(href);
+        const title = decodeHtmlEntities(linkMatch[2].replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim());
+        const snipMatch = block.match(/<a[^>]+class="[^"]*result__snippet[^"]*"[^>]*>([\s\S]*?)<\/a>/i);
+        const snippet = snipMatch
+          ? decodeHtmlEntities(snipMatch[1].replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim())
+          : '';
+        results.push({ title: title || href, url: href, snippet, source: 'Web' });
+      }
+    } catch {}
+  }
+
+  if (wikiRes.status === 'fulfilled' && wikiRes.value.ok) {
+    try {
+      const wikiJson = await wikiRes.value.json();
+      const titles = Array.isArray(wikiJson[1]) ? wikiJson[1] : [];
+      const descs = Array.isArray(wikiJson[2]) ? wikiJson[2] : [];
+      const urls = Array.isArray(wikiJson[3]) ? wikiJson[3] : [];
+      for (let i = 0; i < titles.length; i++) {
+        const wUrl = urls[i];
+        if (!wUrl || seenUrls.has(wUrl)) continue;
+        seenUrls.add(wUrl);
+        results.push({
+          title: `${titles[i]} — Wikipedia`,
+          url: wUrl,
+          snippet: descs[i] || 'Voce enciclopedica su Wikipedia Italia.',
+          source: 'Wikipedia',
+        });
+      }
+    } catch {}
+  }
+
+  const cardsHtml =
+    results.length > 0
+      ? results
+          .map(
+            (r) => `
+          <div style="margin-bottom:20px;padding:14px 16px;border-radius:12px;background:#fff;border:1px solid #e5e7eb;box-shadow:0 1px 2px rgba(0,0,0,0.03)">
+            <div style="font-size:11px;color:#059669;margin-bottom:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(r.source)} · ${escapeHtml(r.url)}</div>
+            <a href="/api/web/proxy?url=${encodeURIComponent(r.url)}" style="font-size:16px;font-weight:600;color:#1a0dab;text-decoration:none;display:inline-block;margin-bottom:4px">${escapeHtml(r.title)}</a>
+            ${r.snippet ? `<div style="font-size:13px;color:#4b5563;line-height:1.45">${escapeHtml(r.snippet)}</div>` : ''}
+          </div>`
+          )
+          .join('')
+      : `<div style="padding:20px;border-radius:12px;background:#fff;border:1px solid #e5e7eb;color:#374151;font-size:13px">
+           Nessun risultato immediato per <strong>${escapeHtml(cleanQ)}</strong>. Prova a inserire direttamente l'indirizzo del sito (es. <code>it.wikipedia.org</code> o <code>ansa.it</code>).
+         </div>`;
+
+  return `<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="utf-8" />
+  <base href="https://www.google.com/" />
+  <title>${escapeHtml(cleanQ)} - Bot Park Web Search</title>
+</head>
+<body style="margin:0;background:#f8fafc;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;color:#111827">
+  <div style="position:sticky;top:0;background:#fff;border-bottom:1px solid #e5e7eb;padding:12px 20px;display:flex;align-items:center;gap:12px;z-index:10">
+    <strong style="font-size:15px;letter-spacing:-0.02em;color:#111827">Bot Park Search</strong>
+    <form id="bp-search-form" style="flex:1;max-width:560px;display:flex;gap:8px">
+      <input id="bp-search-input" type="text" value="${escapeHtml(cleanQ)}" placeholder="Cerca sul web..." style="flex:1;padding:8px 14px;border-radius:999px;border:1px solid #d1d5db;font-size:13px;outline:none" />
+      <button type="submit" style="padding:8px 16px;border-radius:999px;border:none;background:#111827;color:#fff;font-size:12px;font-weight:600;cursor:pointer">Cerca</button>
+    </form>
+  </div>
+  <div style="max-width:740px;margin:20px auto;padding:0 16px">
+    ${cardsHtml}
+  </div>
+  <script>
+    (function() {
+      try {
+        window.parent.postMessage({ type: 'BOTPARK_PROXY_NAV', url: ${JSON.stringify(originalUrl)}, title: document.title }, '*');
+      } catch (e) {}
+      var form = document.getElementById('bp-search-form');
+      if (form) {
+        form.addEventListener('submit', function(e) {
+          e.preventDefault();
+          var q = (document.getElementById('bp-search-input') || {}).value || '';
+          q = q.trim();
+          if (!q) return;
+          var target = 'https://www.google.com/search?q=' + encodeURIComponent(q);
+          window.location.href = '/api/web/proxy?url=' + encodeURIComponent(target);
+        });
+      }
+    })();
+  </script>
+</body>
+</html>`;
+}
+
+function capAndPersistAgentMemories(rawBots, rawMessages) {
+  const cappedBots = Array.isArray(rawBots)
+    ? rawBots.map((bot) => {
+        if (!bot || typeof bot !== 'object') return bot;
+        const memories = Array.isArray(bot.memories) ? bot.memories.slice(-200) : [];
+        const skills = Array.isArray(bot.skills) ? bot.skills : [];
+        const safeId = String(bot.id || 'samantha').replace(/[^a-zA-Z0-9_-]/g, '');
+        const botDirExists = fs.existsSync(path.join(WORKSPACES_ROOT, safeId));
+        if (memories.length > 0 || skills.length > 0 || botDirExists) {
+          try {
+            const dir = ensureBotWorkspace(safeId);
+            const lines = [
+              `# Memoria Permanente di ${bot.name || safeId}`,
+              `Ultimo aggiornamento: ${new Date().toLocaleString('it-IT')}`,
+              '',
+              `## Fatti Ricordati (${memories.length}/200 max)`,
+              ...(memories.length > 0
+                ? memories.map((m) => `- [${m.date || 'N/D'}] ${m.text || ''}`)
+                : ['- Nessun fatto salvato ancora.']),
+              '',
+              `## Skill Operative (${skills.length})`,
+              ...(skills.length > 0
+                ? skills.map((s) => `- **${s.title || 'Skill'}**: ${s.steps || ''}`)
+                : ['- Nessuna skill salvata ancora.']),
+              '',
+            ];
+            fs.writeFileSync(path.join(dir, 'memoria_agente.md'), lines.join('\n'), 'utf8');
+          } catch {}
+        }
+        return {
+          ...bot,
+          ...(Array.isArray(bot.memories) ? { memories } : {}),
+        };
+      })
+    : null;
+
+  let cappedMessages = null;
+  if (rawMessages && typeof rawMessages === 'object') {
+    cappedMessages = {};
+    for (const [bId, msgs] of Object.entries(rawMessages)) {
+      cappedMessages[bId] = Array.isArray(msgs) ? msgs.slice(-100) : msgs;
+    }
+  }
+
+  return { cappedBots, cappedMessages };
+}
+
 function botParkBackendPlugin() {
   return {
     name: 'bot-park-backend',
@@ -659,6 +871,147 @@ function botParkBackendPlugin() {
             );
           }
 
+          if (pathname === '/api/web/proxy' && req.method === 'GET') {
+            const rawTarget = unwrapProxyTargetUrl(urlObj.searchParams.get('url') || '');
+            if (!rawTarget || !/^https?:\/\//i.test(rawTarget)) {
+              res.statusCode = 400;
+              res.setHeader('Content-Type', 'text/html; charset=utf-8');
+              return res.end(
+                '<div style="font-family:sans-serif;padding:24px;color:#374151">URL non valido per il proxy locale.</div>'
+              );
+            }
+
+            let targetParsed;
+            try {
+              targetParsed = new URL(rawTarget);
+            } catch {
+              res.statusCode = 400;
+              res.setHeader('Content-Type', 'text/html; charset=utf-8');
+              return res.end(
+                '<div style="font-family:sans-serif;padding:24px;color:#374151">URL malformato.</div>'
+              );
+            }
+
+            // Se l'utente sta cercando su Google Search, eseguiamo una ricerca reale aggregata (DDG + Wikipedia)
+            if (
+              targetParsed.hostname.includes('google.') &&
+              targetParsed.pathname.startsWith('/search') &&
+              targetParsed.searchParams.get('q')
+            ) {
+              const searchHtml = await buildProxySearchHtml(
+                targetParsed.searchParams.get('q'),
+                rawTarget
+              );
+              res.statusCode = 200;
+              res.setHeader('Content-Type', 'text/html; charset=utf-8');
+              return res.end(searchHtml);
+            }
+
+            try {
+              const pageRes = await fetch(rawTarget, {
+                redirect: 'follow',
+                signal: AbortSignal.timeout(12000),
+                headers: {
+                  'User-Agent':
+                    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
+                  Accept:
+                    'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+                  'Accept-Language': 'it-IT,it;q=0.9,en-US;q=0.8,en;q=0.7',
+                },
+              });
+
+              const finalUrl = pageRes.url || rawTarget;
+              const contentType = pageRes.headers.get('content-type') || 'application/octet-stream';
+
+              if (!/text\/html|application\/xhtml\+xml/i.test(contentType)) {
+                const buf = Buffer.from(await pageRes.arrayBuffer());
+                res.statusCode = pageRes.status || 200;
+                res.setHeader('Content-Type', contentType);
+                return res.end(buf);
+              }
+
+              let html = await pageRes.text();
+              const baseHref = new URL('.', finalUrl).href;
+
+              // Rimuove eventuali meta CSP / X-Frame-Options che bloccherebbero il caricamento nell'iframe
+              html = html
+                .replace(
+                  /<meta[^>]+http-equiv\s*=\s*["']?(?:Content-Security-Policy|X-Frame-Options)["']?[^>]*>/gi,
+                  ''
+                )
+                .replace(/<base[^>]*>/gi, '');
+
+              const baseTag = `<base href="${escapeHtml(baseHref)}" />`;
+              if (/<head[^>]*>/i.test(html)) {
+                html = html.replace(/<head[^>]*>/i, (m) => `${m}\n  ${baseTag}`);
+              } else {
+                html = `${baseTag}\n${html}`;
+              }
+
+              const bridgeScript = `
+<script>
+(function() {
+  function notifyParent() {
+    try {
+      window.parent.postMessage({ type: 'BOTPARK_PROXY_NAV', url: ${JSON.stringify(finalUrl)}, title: document.title }, '*');
+    } catch (e) {}
+  }
+  notifyParent();
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', notifyParent);
+  }
+  document.addEventListener('click', function(e) {
+    var a = e.target && e.target.closest ? e.target.closest('a[href]') : null;
+    if (!a) return;
+    var rawHref = a.getAttribute('href') || '';
+    if (!rawHref || rawHref.startsWith('#') || rawHref.startsWith('javascript:') || rawHref.startsWith('mailto:') || rawHref.startsWith('tel:')) return;
+    var abs = a.href;
+    if (!abs || !/^https?:\\/\\//i.test(abs)) return;
+    e.preventDefault();
+    window.location.href = '/api/web/proxy?url=' + encodeURIComponent(abs);
+  }, true);
+  document.addEventListener('submit', function(e) {
+    var form = e.target;
+    if (!form || (form.method && form.method.toLowerCase() !== 'get')) return;
+    try {
+      var action = form.getAttribute('action') || window.location.href;
+      var absAction = new URL(action, ${JSON.stringify(finalUrl)});
+      var fd = new FormData(form);
+      for (var pair of fd.entries()) {
+        if (typeof pair[1] === 'string') absAction.searchParams.set(pair[0], pair[1]);
+      }
+      e.preventDefault();
+      window.location.href = '/api/web/proxy?url=' + encodeURIComponent(absAction.href);
+    } catch (err) {}
+  }, true);
+})();
+</script>`;
+
+              if (/<\/body>/i.test(html)) {
+                html = html.replace(/<\/body>/i, `${bridgeScript}\n</body>`);
+              } else {
+                html += bridgeScript;
+              }
+
+              res.statusCode = 200;
+              res.setHeader('Content-Type', 'text/html; charset=utf-8');
+              return res.end(html);
+            } catch (proxyErr) {
+              res.statusCode = 200;
+              res.setHeader('Content-Type', 'text/html; charset=utf-8');
+              return res.end(`<!DOCTYPE html>
+<html lang="it">
+<body style="margin:0;padding:32px;font-family:-apple-system,sans-serif;background:#f8fafc;color:#111827">
+  <div style="max-width:520px;margin:40px auto;background:#fff;border:1px solid #e5e7eb;border-radius:16px;padding:24px;box-shadow:0 4px 16px rgba(0,0,0,0.04)">
+    <h2 style="margin:0 0 8px;font-size:17px">Impossibile raggiungere il sito</h2>
+    <p style="margin:0 0 12px;font-size:13px;color:#4b5563">Indirizzo: <code>${escapeHtml(rawTarget)}</code></p>
+    <p style="margin:0;font-size:12px;color:#dc2626">${escapeHtml(proxyErr?.message || 'Errore di rete o timeout')}</p>
+  </div>
+</body>
+</html>`);
+            }
+          }
+
           if (pathname === '/api/web/fetch' && req.method === 'POST') {
             const body = await readJsonBody(req);
             const targetUrl = String(body.url || '').trim();
@@ -846,10 +1199,14 @@ function botParkBackendPlugin() {
           if (pathname === '/api/mobile/sync' && req.method === 'POST') {
             ensureVaultFile();
             const body = await readJsonBody(req);
+            const { cappedBots, cappedMessages } = capAndPersistAgentMemories(
+              body.bots || null,
+              body.botMessages || null
+            );
             const payload = {
               updatedAt: Date.now(),
-              bots: body.bots || null,
-              botMessages: body.botMessages || null,
+              bots: cappedBots || body.bots || null,
+              botMessages: cappedMessages || body.botMessages || null,
               routines: body.routines || null,
               geminiApiKey: body.geminiApiKey || '',
               elevenLabsApiKey: body.elevenLabsApiKey || '',
