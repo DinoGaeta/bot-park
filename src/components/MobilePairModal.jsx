@@ -8,7 +8,7 @@ export default function MobilePairModal({ isOpen, onClose }) {
   const [qrDataUrl, setQrDataUrl] = useState('');
   const [copied, setCopied] = useState(false);
   const [localIp, setLocalIp] = useState('172.20.10.5');
-  const [activeTab, setActiveTab] = useState('iphone'); // 'iphone' | 'android'
+  const [activeTab, setActiveTab] = useState('android'); // 'iphone' | 'android'
   const [qrMode, setQrMode] = useState('web'); // 'web' | 'apk'
   const [pushStatus, setPushStatus] = useState('');
   const port = '5173';

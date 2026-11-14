@@ -16,6 +16,10 @@ import {
   Eye,
   Trash2,
   RotateCcw,
+  ShieldCheck,
+  Download,
+  Zap,
+  ChevronRight,
 } from 'lucide-react';
 import BotAvatar from './BotAvatar';
 import { sounds } from '../services/soundEffects';
@@ -42,6 +46,52 @@ export default function SidebarLeft({
   const [renameValue, setRenameValue] = useState('');
   const [confirmDeleteBot, setConfirmDeleteBot] = useState(null);
   const [showHiddenBots, setShowHiddenBots] = useState(false);
+  const [permStatus, setPermStatus] = useState('');
+
+  const isNativeAndroid =
+    typeof window !== 'undefined' &&
+    Boolean(window.BotParkNative?.isNativeApp?.() || window.location.search.includes('nativeApp=android'));
+
+  const handleUnlockPermissions = async () => {
+    sounds.play('tick');
+    try {
+      if (window.BotParkNative?.requestAllPermissions) {
+        window.BotParkNative.requestAllPermissions();
+      }
+    } catch {}
+
+    let micOk = false;
+    try {
+      if (navigator.mediaDevices?.getUserMedia) {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        stream.getTracks().forEach((t) => t.stop());
+        micOk = true;
+      }
+    } catch {}
+
+    let pushPerm = 'in-app';
+    try {
+      if (typeof window !== 'undefined' && 'Notification' in window) {
+        pushPerm = await window.Notification.requestPermission();
+      }
+      const devId =
+        localStorage.getItem('botpark_mobile_device_id') ||
+        `mob_${Math.random().toString(36).slice(2, 10)}`;
+      localStorage.setItem('botpark_mobile_device_id', devId);
+      await fetch('/api/push/register-device', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          deviceId: devId,
+          platform: isNativeAndroid ? 'android-native' : 'mobile-web',
+          pushToken: `${pushPerm}_${micOk ? 'mic' : 'nomic'}`,
+        }),
+      });
+    } catch {}
+
+    setPermStatus(micOk ? 'Mic, Tel & Push attivi!' : 'Permessi aggiornati!');
+    setTimeout(() => setPermStatus(''), 3500);
+  };
 
   const popoverRef = useRef(null);
   const botMenuRef = useRef(null);
@@ -326,6 +376,38 @@ export default function SidebarLeft({
           <Plus size={16} />
         </button>
       </div>
+
+      {/* Barra compatta Mobile: Entanglement Real-Time + Sblocco Permessi (Mic, Tel, Cam, Push) */}
+      {isMobile && (
+        <div className="px-3 pb-2 flex items-center justify-between gap-2 flex-wrap border-b border-[#e5e7eb]/60">
+          <div className="flex items-center gap-1.5 text-[10.5px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-1 rounded-full">
+            <Zap size={11} className="text-emerald-600" />
+            <span>Entanglement Attivo</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={handleUnlockPermissions}
+              className="flex items-center gap-1 px-2.5 py-1 rounded-full bg-white hover:bg-gray-100 border border-gray-200 text-[11px] font-semibold text-gray-800 shadow-2xs cursor-pointer"
+              title="Sblocca Microfono, Telefono, Fotocamera, Contatti e Notifiche Push"
+            >
+              <ShieldCheck size={12} className="text-blue-600" />
+              <span>{permStatus || 'Sblocca Mic, Tel & Push'}</span>
+            </button>
+            {!isNativeAndroid && (
+              <a
+                href="./BotParkMobile.apk"
+                download="BotParkMobile.apk"
+                className="flex items-center gap-1 px-2.5 py-1 rounded-full bg-[#0b0b0d] text-white text-[11px] font-semibold shadow-2xs"
+                title="Scarica App Android Nativa BotParkMobile.apk"
+              >
+                <Download size={11} />
+                <span>APK</span>
+              </a>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* 2. SAMANTHA — CAPO BOT & AGENTE PRINCIPALE (In cima, protetta da eliminazione) */}
       <div className="px-3 py-2 border-b border-[#e5e7eb]/70">
