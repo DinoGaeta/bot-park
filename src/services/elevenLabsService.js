@@ -38,6 +38,11 @@ export function unlockAudioForMobile() {
 }
 
 export async function stopCurrentSpeech() {
+  if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+    try {
+      window.speechSynthesis.cancel();
+    } catch {}
+  }
   if (currentAudio) {
     try {
       currentAudio.pause();
@@ -53,6 +58,59 @@ export async function stopCurrentSpeech() {
   }
 }
 
+function speakNativeFallback(rawText, speed, onStart, onEnd) {
+  const cleanText = String(rawText || '')
+    .replace(/```[\s\S]*?```/g, 'Blocco di codice omesso.')
+    .replace(/[*#_`~>[\]()]/g, '')
+    .replace(/\n+/g, '. ')
+    .trim();
+  if (!cleanText) {
+    onEnd && onEnd();
+    return;
+  }
+
+  if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+    try {
+      window.speechSynthesis.cancel();
+      const utterance = new SpeechSynthesisUtterance(cleanText);
+      utterance.lang = 'it-IT';
+      utterance.rate = typeof speed === 'number' ? speed : parseFloat(speed) || 1.05;
+      const voices = window.speechSynthesis.getVoices?.() || [];
+      const itaVoice =
+        voices.find(
+          (v) =>
+            v.lang?.startsWith('it') &&
+            (v.name.includes('Google') ||
+              v.name.includes('Natural') ||
+              v.name.includes('Alice') ||
+              v.name.includes('Elsa') ||
+              v.name.includes('Cosimo') ||
+              v.name.includes('Federica'))
+        ) || voices.find((v) => v.lang?.startsWith('it'));
+      if (itaVoice) utterance.voice = itaVoice;
+
+      let settled = false;
+      const done = () => {
+        if (settled) return;
+        settled = true;
+        onEnd && onEnd();
+      };
+      utterance.onstart = () => onStart && onStart();
+      utterance.onend = done;
+      utterance.onerror = done;
+      onStart && onStart();
+      window.speechSynthesis.speak(utterance);
+      return;
+    } catch {}
+  }
+
+  onStart && onStart();
+  const estMs = Math.max(1500, Math.min(8000, cleanText.length * 55));
+  setTimeout(() => {
+    onEnd && onEnd();
+  }, estMs);
+}
+
 export async function speakTextWithElevenLabs({
   text,
   voiceId = 'CiwzbDpaN3pQXjTgx3ML',
@@ -64,33 +122,26 @@ export async function speakTextWithElevenLabs({
 }) {
   if (!text || !text.trim()) return;
 
+  // Rimuovi caratteri di formattazione markdown per sintesi pulita
+  const cleanText = text
+    .replace(/```[\s\S]*?```/g, 'Blocco di codice omesso.')
+    .replace(/[*#_`~>[\]()]/g, '')
+    .replace(/\n+/g, '. ')
+    .trim();
+
+  if (!cleanText) {
+    onEnd && onEnd();
+    return;
+  }
+
   // Se è Cosmo o manca la chiave API, usa fallback SpeechSynthesis del browser
   if (voiceId === 'Cosmo' || !apiKey) {
-    if ('speechSynthesis' in window) {
-      window.speechSynthesis.cancel();
-      const cleanText = text.replace(/[*#_`~>]/g, '').trim();
-      const utterance = new SpeechSynthesisUtterance(cleanText);
-      utterance.lang = 'it-IT';
-      utterance.rate = typeof speed === 'number' ? speed : parseFloat(speed) || 1.15;
-      utterance.onstart = () => onStart && onStart();
-      utterance.onend = () => onEnd && onEnd();
-      utterance.onerror = () => onEnd && onEnd();
-      window.speechSynthesis.speak(utterance);
-      return;
-    }
+    speakNativeFallback(cleanText, speed, onStart, onEnd);
+    return;
   }
 
   try {
     await stopCurrentSpeech();
-
-    // Rimuovi caratteri di formattazione markdown per sintesi pulita
-    const cleanText = text
-      .replace(/```[\s\S]*?```/g, 'Blocco di codice omesso.')
-      .replace(/[*#_`~>[\]()]/g, '')
-      .replace(/\n+/g, '. ')
-      .trim();
-
-    if (!cleanText) return;
 
     const url = `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}?output_format=mp3_44100_128`;
     const response = await fetch(url, {
@@ -115,16 +166,8 @@ export async function speakTextWithElevenLabs({
     if (!response.ok) {
       const errText = await response.text();
       console.warn(`ElevenLabs error ${response.status}:`, errText);
-      // Fallback rapido a SpeechSynthesis locale
-      if ('speechSynthesis' in window) {
-        const fallbackUtterance = new SpeechSynthesisUtterance(cleanText);
-        fallbackUtterance.lang = 'it-IT';
-        fallbackUtterance.onstart = onStart;
-        fallbackUtterance.onend = onEnd;
-        window.speechSynthesis.speak(fallbackUtterance);
-        return;
-      }
-      throw new Error(`ElevenLabs HTTP ${response.status}`);
+      speakNativeFallback(cleanText, speed, onStart, onEnd);
+      return;
     }
 
     const audioBlob = await response.blob();
@@ -151,20 +194,25 @@ export async function speakTextWithElevenLabs({
       onEnd && onEnd();
     };
 
-    audio.onerror = (e) => {
+    audio.onerror = () => {
       if (currentAudioUrl) {
         URL.revokeObjectURL(currentAudioUrl);
         currentAudioUrl = null;
       }
       currentAudio = null;
-      onError && onError(e);
-      onEnd && onEnd();
+      speakNativeFallback(cleanText, speed, onStart, onEnd);
     };
 
     await audio.play();
   } catch (err) {
-    console.error('TTS ElevenLabs Fallback:', err);
-    onError && onError(err);
-    onEnd && onEnd();
+    console.warn('TTS ElevenLabs/Audio fallback a voce nativa:', err);
+    if (currentAudioUrl) {
+      try {
+        URL.revokeObjectURL(currentAudioUrl);
+      } catch {}
+      currentAudioUrl = null;
+    }
+    currentAudio = null;
+    speakNativeFallback(cleanText, speed, onStart, onEnd);
   }
 }

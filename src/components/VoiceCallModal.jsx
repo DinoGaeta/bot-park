@@ -39,7 +39,6 @@ export default function VoiceCallModal({
   const geminiApiKeyRef = useRef(geminiApiKey);
   const elevenLabsApiKeyRef = useRef(elevenLabsApiKey);
   const onVoiceTurnCompletedRef = useRef(onVoiceTurnCompleted);
-  const audioCaptureInputRef = useRef(null);
   const processCapturedVoiceRef = useRef(null);
 
   useEffect(() => {
@@ -74,6 +73,8 @@ export default function VoiceCallModal({
   const silenceStartRef = useRef(null);
   const hasSpokenInTurnRef = useRef(false);
   const speechRecRef = useRef(null);
+  const speechSilenceTimerRef = useRef(null);
+  const speechRestartCountRef = useRef(0);
   const interimTextRef = useRef('');
   const isMountedRef = useRef(false);
 
@@ -120,11 +121,23 @@ export default function VoiceCallModal({
 
   const cleanupRecording = useCallback(() => {
     if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    if (speechSilenceTimerRef.current) {
+      clearTimeout(speechSilenceTimerRef.current);
+      speechSilenceTimerRef.current = null;
+    }
     stopBargeInMonitor();
     try {
+      if (typeof window !== 'undefined' && window.BotParkNative?.stopVoiceRecognition) {
+        window.BotParkNative.stopVoiceRecognition();
+      }
+    } catch {}
+    try {
       if (speechRecRef.current) {
-        speechRecRef.current.onend = null;
-        speechRecRef.current.stop();
+        const rec = speechRecRef.current;
+        speechRecRef.current = null;
+        rec.onend = null;
+        rec.onerror = null;
+        rec.stop();
       }
     } catch {}
     try {
@@ -230,17 +243,38 @@ export default function VoiceCallModal({
 
   const finishListeningAndSend = useCallback(() => {
     if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    if (speechSilenceTimerRef.current) {
+      clearTimeout(speechSilenceTimerRef.current);
+      speechSilenceTimerRef.current = null;
+    }
+    try {
+      if (typeof window !== 'undefined' && window.BotParkNative?.stopVoiceRecognition) {
+        window.BotParkNative.stopVoiceRecognition();
+      }
+    } catch {}
     try {
       if (speechRecRef.current) {
-        speechRecRef.current.onend = null;
-        speechRecRef.current.stop();
+        const rec = speechRecRef.current;
+        speechRecRef.current = null;
+        rec.onend = null;
+        rec.onerror = null;
+        rec.stop();
       }
     } catch {}
-    try {
-      if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+    const isRecorderActive =
+      mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording';
+    if (isRecorderActive) {
+      try {
         mediaRecorderRef.current.stop();
+      } catch {}
+    } else {
+      const capturedText = interimTextRef.current.trim();
+      interimTextRef.current = '';
+      hasSpokenInTurnRef.current = false;
+      if (capturedText && processCapturedVoiceRef.current) {
+        processCapturedVoiceRef.current(null, capturedText);
       }
-    } catch {}
+    }
     try {
       if (streamRef.current) {
         streamRef.current.getTracks().forEach((t) => t.stop());
@@ -439,20 +473,63 @@ export default function VoiceCallModal({
     if (!isOpen) return;
     const onNativeSpeech = (ev) => {
       const spoken = String(ev?.detail?.text || '').trim();
+      if (speechSilenceTimerRef.current) {
+        clearTimeout(speechSilenceTimerRef.current);
+        speechSilenceTimerRef.current = null;
+      }
       if (spoken && isMountedRef.current && processCapturedVoiceRef.current) {
         unlockAudioForMobile();
+        interimTextRef.current = '';
+        hasSpokenInTurnRef.current = false;
         setLiveTranscript(spoken);
+        setAudioLevel(0);
         processCapturedVoiceRef.current(null, spoken);
       }
     };
+    const onNativePartial = (ev) => {
+      const partial = String(ev?.detail?.text || '').trim();
+      if (partial && isMountedRef.current) {
+        interimTextRef.current = partial;
+        hasSpokenInTurnRef.current = true;
+        setLiveTranscript(partial);
+        setCallState('listening');
+      }
+    };
+    const onNativeRms = (ev) => {
+      const rms = Number(ev?.detail?.rms);
+      if (Number.isFinite(rms) && isMountedRef.current) {
+        const norm = Math.min(1, Math.max(0, (rms + 2) / 12));
+        setAudioLevel(norm);
+      }
+    };
     window.addEventListener('botpark-native-speech', onNativeSpeech);
-    return () => window.removeEventListener('botpark-native-speech', onNativeSpeech);
+    window.addEventListener('botpark-native-speech-partial', onNativePartial);
+    window.addEventListener('botpark-native-speech-rms', onNativeRms);
+    return () => {
+      window.removeEventListener('botpark-native-speech', onNativeSpeech);
+      window.removeEventListener('botpark-native-speech-partial', onNativePartial);
+      window.removeEventListener('botpark-native-speech-rms', onNativeRms);
+    };
   }, [isOpen]);
 
-  // Avvia l'ascolto dal microfono con rilevamento automatico del parlato (VAD) + MediaRecorder per Gemini Audio API
+  // Avvia l'ascolto continuo (Tier 1: SpeechRecognizer nativo Android, Tier 2: WebRTC+VAD, Tier 3: SpeechRecognition mobile)
   const startListeningTurn = useCallback(async () => {
     if (!isMountedRef.current) return;
     stopBargeInMonitor();
+    if (speechSilenceTimerRef.current) {
+      clearTimeout(speechSilenceTimerRef.current);
+      speechSilenceTimerRef.current = null;
+    }
+    try {
+      if (speechRecRef.current) {
+        const oldRec = speechRecRef.current;
+        speechRecRef.current = null;
+        oldRec.onend = null;
+        oldRec.onerror = null;
+        oldRec.stop();
+      }
+    } catch {}
+    speechRestartCountRef.current = 0;
     setErrorBanner('');
     setLiveTranscript('');
     interimTextRef.current = '';
@@ -460,127 +537,221 @@ export default function VoiceCallModal({
     silenceStartRef.current = null;
     audioChunksRef.current = [];
 
+    // TIER 1: SpeechRecognizer nativo continuo su BotParkMobile.apk (identico a JarvisOverlayService TV)
+    if (
+      typeof window !== 'undefined' &&
+      window.BotParkNative &&
+      typeof window.BotParkNative.startVoiceRecognition === 'function'
+    ) {
+      setIsHybridFallbackMode(false);
+      setCallState('listening');
+      window.BotParkNative.startVoiceRecognition();
+      return;
+    }
+
+    // TIER 2: WebRTC getUserMedia + MediaRecorder + AudioContext VAD + SpeechRecognition (Desktop & HTTPS :5443)
     const hasLiveMic =
       typeof navigator !== 'undefined' &&
       !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia) &&
       typeof window.MediaRecorder !== 'undefined';
 
-    if (!hasLiveMic) {
-      setIsHybridFallbackMode(true);
-      setCallState('idle');
-      return;
-    }
-
-    try {
-      setIsHybridFallbackMode(false);
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-        },
-      });
-      streamRef.current = stream;
-
-      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-      if (SpeechRecognition) {
-        try {
-          const rec = new SpeechRecognition();
-          rec.lang = 'it-IT';
-          rec.continuous = true;
-          rec.interimResults = true;
-          rec.onresult = (ev) => {
-            let text = '';
-            for (let i = 0; i < ev.results.length; i++) {
-              text += ev.results[i][0].transcript;
-            }
-            if (text.trim()) {
-              interimTextRef.current = text.trim();
-              setLiveTranscript(text.trim());
-              hasSpokenInTurnRef.current = true;
-            }
-          };
-          rec.start();
-          speechRecRef.current = rec;
-        } catch {}
-      }
-
-      const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
-        ? 'audio/webm;codecs=opus'
-        : MediaRecorder.isTypeSupported('audio/webm')
-        ? 'audio/webm'
-        : '';
-
-      const recorder = mimeType
-        ? new MediaRecorder(stream, { mimeType })
-        : new MediaRecorder(stream);
-
-      recorder.ondataavailable = (e) => {
-        if (e.data && e.data.size > 0) {
-          audioChunksRef.current.push(e.data);
-        }
-      };
-
-      recorder.onstop = async () => {
-        if (!isMountedRef.current) return;
-        const blob = new Blob(audioChunksRef.current, {
-          type: recorder.mimeType || 'audio/webm',
+    if (hasLiveMic) {
+      try {
+        setIsHybridFallbackMode(false);
+        const stream = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true,
+          },
         });
-        await processCapturedVoice(blob, interimTextRef.current);
-      };
-
-      mediaRecorderRef.current = recorder;
-      recorder.start(200);
-      setCallState('listening');
-
-      const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-      audioContextRef.current = audioCtx;
-      const source = audioCtx.createMediaStreamSource(stream);
-      const analyser = audioCtx.createAnalyser();
-      analyser.fftSize = 512;
-      source.connect(analyser);
-      analyserRef.current = analyser;
-
-      const dataArray = new Uint8Array(analyser.frequencyBinCount);
-      const turnStartedAt = Date.now();
-
-      const checkVolume = () => {
-        if (!isMountedRef.current || !analyserRef.current) return;
-        analyser.getByteFrequencyData(dataArray);
-        let sum = 0;
-        for (let i = 0; i < dataArray.length; i++) {
-          sum += dataArray[i];
+        if (!isMountedRef.current) {
+          stream.getTracks().forEach((t) => t.stop());
+          return;
         }
-        const avg = sum / dataArray.length;
-        const norm = Math.min(1, avg / 55);
-        setAudioLevel(norm);
+        streamRef.current = stream;
 
-        const now = Date.now();
-        if (avg > 15) {
-          hasSpokenInTurnRef.current = true;
-          silenceStartRef.current = null;
-        } else if (hasSpokenInTurnRef.current && now - turnStartedAt > 1100) {
-          if (!silenceStartRef.current) {
-            silenceStartRef.current = now;
-          } else if (now - silenceStartRef.current > 1400) {
-            finishListeningAndSend();
-            return;
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        if (SpeechRecognition) {
+          try {
+            const rec = new SpeechRecognition();
+            rec.lang = 'it-IT';
+            rec.continuous = true;
+            rec.interimResults = true;
+            rec.onresult = (ev) => {
+              let text = '';
+              for (let i = 0; i < ev.results.length; i++) {
+                text += ev.results[i][0].transcript;
+              }
+              if (text.trim()) {
+                interimTextRef.current = text.trim();
+                setLiveTranscript(text.trim());
+                hasSpokenInTurnRef.current = true;
+              }
+            };
+            rec.start();
+            speechRecRef.current = rec;
+          } catch {}
+        }
+
+        const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+          ? 'audio/webm;codecs=opus'
+          : MediaRecorder.isTypeSupported('audio/webm')
+          ? 'audio/webm'
+          : '';
+
+        const recorder = mimeType
+          ? new MediaRecorder(stream, { mimeType })
+          : new MediaRecorder(stream);
+
+        recorder.ondataavailable = (e) => {
+          if (e.data && e.data.size > 0) {
+            audioChunksRef.current.push(e.data);
           }
-        }
+        };
+
+        recorder.onstop = async () => {
+          if (!isMountedRef.current) return;
+          const blob = new Blob(audioChunksRef.current, {
+            type: recorder.mimeType || 'audio/webm',
+          });
+          await processCapturedVoice(blob, interimTextRef.current);
+        };
+
+        mediaRecorderRef.current = recorder;
+        recorder.start(200);
+        setCallState('listening');
+
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        audioContextRef.current = audioCtx;
+        const source = audioCtx.createMediaStreamSource(stream);
+        const analyser = audioCtx.createAnalyser();
+        analyser.fftSize = 512;
+        source.connect(analyser);
+        analyserRef.current = analyser;
+
+        const dataArray = new Uint8Array(analyser.frequencyBinCount);
+        const turnStartedAt = Date.now();
+
+        const checkVolume = () => {
+          if (!isMountedRef.current || !analyserRef.current) return;
+          analyser.getByteFrequencyData(dataArray);
+          let sum = 0;
+          for (let i = 0; i < dataArray.length; i++) {
+            sum += dataArray[i];
+          }
+          const avg = sum / dataArray.length;
+          const norm = Math.min(1, avg / 55);
+          setAudioLevel(norm);
+
+          const now = Date.now();
+          if (avg > 15) {
+            hasSpokenInTurnRef.current = true;
+            silenceStartRef.current = null;
+          } else if (hasSpokenInTurnRef.current && now - turnStartedAt > 1100) {
+            if (!silenceStartRef.current) {
+              silenceStartRef.current = now;
+            } else if (now - silenceStartRef.current > 1400) {
+              finishListeningAndSend();
+              return;
+            }
+          }
+
+          rafRef.current = requestAnimationFrame(checkVolume);
+        };
 
         rafRef.current = requestAnimationFrame(checkVolume);
-      };
-
-      rafRef.current = requestAnimationFrame(checkVolume);
-    } catch (err) {
-      setIsHybridFallbackMode(true);
-      if (window.isSecureContext) {
-        setErrorBanner(`Accesso al microfono non riuscito: ${err.message}`);
-      } else {
-        setErrorBanner('');
+        return;
+      } catch {
+        // Prosegue subito su Tier 3 (SpeechRecognition continuo) senza mostrare errore o aprire fotocamera
+        if (streamRef.current) {
+          streamRef.current.getTracks().forEach((t) => t.stop());
+          streamRef.current = null;
+        }
       }
-      setCallState('idle');
     }
+
+    // TIER 3: SpeechRecognition continuo standalone (iPhone Safari & mobile quando getUserMedia non è disponibile)
+    const SpeechRecognition =
+      typeof window !== 'undefined' &&
+      (window.SpeechRecognition || window.webkitSpeechRecognition);
+    if (SpeechRecognition) {
+      try {
+        const rec = new SpeechRecognition();
+        rec.lang = 'it-IT';
+        rec.continuous = true;
+        rec.interimResults = true;
+
+        rec.onresult = (ev) => {
+          let text = '';
+          for (let i = 0; i < ev.results.length; i++) {
+            text += ev.results[i][0].transcript;
+          }
+          const clean = text.trim();
+          if (clean && isMountedRef.current) {
+            interimTextRef.current = clean;
+            setLiveTranscript(clean);
+            hasSpokenInTurnRef.current = true;
+            setAudioLevel(0.65);
+            if (speechSilenceTimerRef.current) clearTimeout(speechSilenceTimerRef.current);
+            speechSilenceTimerRef.current = setTimeout(() => {
+              setAudioLevel(0);
+              finishListeningAndSend();
+            }, 1400);
+          }
+        };
+
+        rec.onend = () => {
+          if (!isMountedRef.current) return;
+          setAudioLevel(0);
+          const captured = interimTextRef.current.trim();
+          if (hasSpokenInTurnRef.current && captured) {
+            if (speechSilenceTimerRef.current) {
+              clearTimeout(speechSilenceTimerRef.current);
+              speechSilenceTimerRef.current = null;
+            }
+            speechRecRef.current = null;
+            interimTextRef.current = '';
+            hasSpokenInTurnRef.current = false;
+            processCapturedVoiceRef.current?.(null, captured);
+            return;
+          }
+          if (speechRecRef.current === rec && speechRestartCountRef.current < 4) {
+            speechRestartCountRef.current += 1;
+            setTimeout(() => {
+              if (isMountedRef.current && speechRecRef.current === rec) {
+                try {
+                  rec.start();
+                } catch {}
+              }
+            }, 250);
+          }
+        };
+
+        rec.onerror = (ev) => {
+          if (ev?.error === 'not-allowed' || ev?.error === 'service-not-allowed') {
+            speechRecRef.current = null;
+            if (speechSilenceTimerRef.current) {
+              clearTimeout(speechSilenceTimerRef.current);
+              speechSilenceTimerRef.current = null;
+            }
+            if (isMountedRef.current) {
+              setIsHybridFallbackMode(true);
+              setCallState('idle');
+            }
+          }
+        };
+
+        speechRecRef.current = rec;
+        rec.start();
+        setIsHybridFallbackMode(false);
+        setCallState('listening');
+        return;
+      } catch {}
+    }
+
+    setIsHybridFallbackMode(true);
+    setCallState('idle');
   }, [finishListeningAndSend, processCapturedVoice, stopBargeInMonitor]);
 
   useEffect(() => {
@@ -623,24 +794,6 @@ export default function VoiceCallModal({
     processCapturedVoice(null, clean);
   };
 
-  const handleHybridVoiceCapture = () => {
-    unlockAudioForMobile();
-    sounds.play('tick');
-    if (window.BotParkNative && typeof window.BotParkNative.startVoiceRecognition === 'function') {
-      window.BotParkNative.startVoiceRecognition();
-      return;
-    }
-    audioCaptureInputRef.current?.click();
-  };
-
-  const handleAudioFileSelected = async (e) => {
-    const file = e.target.files?.[0];
-    e.target.value = '';
-    if (!file || !isMountedRef.current) return;
-    unlockAudioForMobile();
-    await processCapturedVoice(file, '');
-  };
-
   const handleToggleMuteOrSend = () => {
     unlockAudioForMobile();
     sounds.play('tick');
@@ -654,8 +807,6 @@ export default function VoiceCallModal({
     } else if (callState === 'speaking') {
       // Barge-In immediato: zittisce il bot (PC + TV) e ascolta subito Dion!
       interruptBotSpeechAndListen();
-    } else if (isHybridFallbackMode) {
-      handleHybridVoiceCapture();
     } else {
       startListeningTurn();
     }
@@ -786,7 +937,7 @@ export default function VoiceCallModal({
                 ? `Sta parlando sulla Smart TV (inizia a parlare per interromperlo)...`
                 : `Sta parlando con voce ${activeBot?.voice?.split(' ')[0] || 'ElevenLabs'} (parla per interrompere)...`
               : isHybridFallbackMode
-              ? 'Modalità Ibrida Mobile • Dettatura o Audio Rapido'
+              ? 'Dettatura Rapida Mobile o HTTPS Live'
               : 'Microfono in pausa'}
           </p>
 
@@ -801,15 +952,6 @@ export default function VoiceCallModal({
               {botReplyText || `Parla al microfono per dialogare a voce con ${activeBot?.name}`}
             </div>
           </div>
-
-          <input
-            ref={audioCaptureInputRef}
-            type="file"
-            accept="audio/*"
-            capture="microphone"
-            className="hidden"
-            onChange={handleAudioFileSelected}
-          />
 
           {isHybridFallbackMode && (
             <div className="w-full mt-3 flex flex-col gap-2 z-10">
@@ -836,24 +978,10 @@ export default function VoiceCallModal({
                 </button>
               </form>
 
-              <div className="flex flex-wrap items-center justify-center gap-2">
-                <button
-                  type="button"
-                  onClick={handleHybridVoiceCapture}
-                  disabled={callState === 'thinking'}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/10 hover:bg-white/15 border border-white/15 text-[11px] font-medium text-white transition-all cursor-pointer disabled:opacity-40"
-                >
-                  <Mic size={13} />
-                  <span>
-                    {typeof window !== 'undefined' && window.BotParkNative?.startVoiceRecognition
-                      ? 'Parla con Microfono Android'
-                      : 'Registra Clip Audio'}
-                  </span>
-                </button>
-
-                {typeof window !== 'undefined' &&
-                  window.location.protocol === 'http:' &&
-                  !['localhost', '127.0.0.1'].includes(window.location.hostname) && (
+              {typeof window !== 'undefined' &&
+                window.location.protocol === 'http:' &&
+                !['localhost', '127.0.0.1'].includes(window.location.hostname) && (
+                  <div className="flex flex-wrap items-center justify-center gap-2">
                     <button
                       type="button"
                       onClick={() => {
@@ -865,8 +993,8 @@ export default function VoiceCallModal({
                       <Lock size={12} />
                       <span>Passa a HTTPS (:5443) per Mic Live Continuo</span>
                     </button>
-                  )}
-              </div>
+                  </div>
+                )}
             </div>
           )}
 
@@ -897,9 +1025,7 @@ export default function VoiceCallModal({
                   ? 'Clicca per inviare subito la frase o mettere in muto'
                   : callState === 'speaking'
                   ? 'Interrompi subito e parla'
-                  : isHybridFallbackMode
-                  ? 'Avvia registrazione vocale rapida'
-                  : 'Riattiva microfono'
+                  : 'Riattiva ascolto microfono'
               }
             >
               {callState === 'muted' ? (

@@ -24,6 +24,7 @@ import {
   Home,
   Minus,
   Layers,
+  Camera,
   Square as MaximizeIcon,
 } from 'lucide-react';
 import { marked } from 'marked';
@@ -65,6 +66,7 @@ export default function ChatCenter({
 }) {
   const messagesEndRef = useRef(null);
   const fileInputRef = useRef(null);
+  const cameraInputRef = useRef(null);
   const [canvasContent, setCanvasContent] = useState(null); // { title, content }
   const [copiedCanvas, setCopiedCanvas] = useState(false);
   const [isCreatingRoom, setIsCreatingRoom] = useState(false);
@@ -653,6 +655,22 @@ export default function ChatCenter({
             title="Allega immagine o documento (.pdf, .txt, .md, .csv, .json, codice)"
           >
             <Plus size={16} />
+          </button>
+
+          <input
+            type="file"
+            ref={cameraInputRef}
+            onChange={onAttachImage}
+            accept="image/*"
+            capture="environment"
+            className="hidden"
+          />
+          <button
+            onClick={() => cameraInputRef.current?.click()}
+            className="w-7 h-7 rounded-full hover:bg-gray-200/80 text-gray-500 hover:text-gray-800 flex items-center justify-center transition-colors shrink-0 cursor-pointer"
+            title={`Scatta foto con la fotocamera per ${activeBot?.name}`}
+          >
+            <Camera size={15} />
           </button>
 
           {/* Tasto Cattura Schermo PC in diretta ("Agisce sullo schermo" - Feature #5) */}
