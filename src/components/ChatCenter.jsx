@@ -99,9 +99,9 @@ export default function ChatCenter({
         className="h-12 flex items-center justify-between px-4 shrink-0 bg-white/95 backdrop-blur-md z-20"
         style={{ WebkitAppRegion: 'drag' }}
       >
-        {/* Spazio sinistro per bilanciare il centraggio perfetto della Pill (o tasto Indietro su Mobile) */}
+        {/* Spazio sinistro: Logo Bot Park ufficiale (e tasto Indietro su Mobile) */}
         <div
-          className={`${isMobile ? 'w-20' : 'w-36'} flex items-center`}
+          className={`${isMobile ? 'w-24' : 'w-36'} flex items-center gap-2`}
           style={{ WebkitAppRegion: 'no-drag' }}
         >
           {isMobile && (
@@ -116,6 +116,12 @@ export default function ChatCenter({
               <span>Bot</span>
             </button>
           )}
+          <img
+            src="./bot_park_icon.png"
+            alt="Bot Park"
+            title="Bot Park — Jurassic AI Agent"
+            className={`${isMobile ? 'h-6' : 'h-7'} w-auto object-contain opacity-95 hover:opacity-100 transition-opacity select-none`}
+          />
         </div>
 
         {/* Pill Centrale Cliccabile con Avatar + Nome Bot + ">" (Image 4: apre/chiude la Sidebar Destra!) */}

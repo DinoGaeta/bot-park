@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { X, Wifi, Check, Copy, Share, PlusSquare, Smartphone } from 'lucide-react';
+import { X, Wifi, Check, Copy, Share, PlusSquare, Smartphone, Download, Bell } from 'lucide-react';
 import QRCode from 'qrcode';
 import { sounds } from '../services/soundEffects';
 
@@ -9,12 +9,17 @@ export default function MobilePairModal({ isOpen, onClose }) {
   const [copied, setCopied] = useState(false);
   const [localIp, setLocalIp] = useState('172.20.10.5');
   const [activeTab, setActiveTab] = useState('iphone'); // 'iphone' | 'android'
+  const [qrMode, setQrMode] = useState('web'); // 'web' | 'apk'
+  const [pushStatus, setPushStatus] = useState('');
   const port = '5173';
   const pairUrl = `http://${localIp}:${port}/?mobile=1`;
+  const apkUrl = `http://${localIp}:${port}/BotParkMobile.apk`;
+  const activeQrUrl = activeTab === 'android' && qrMode === 'apk' ? apkUrl : pairUrl;
 
   useEffect(() => {
     if (!isOpen) return;
     sounds.play('open');
+    setPushStatus('');
     fetch('/api/network/info')
       .then((r) => r.json())
       .then((data) => {
@@ -27,7 +32,7 @@ export default function MobilePairModal({ isOpen, onClose }) {
 
   useEffect(() => {
     if (!isOpen) return;
-    QRCode.toDataURL(pairUrl, {
+    QRCode.toDataURL(activeQrUrl, {
       width: 240,
       margin: 2,
       color: {
@@ -37,15 +42,56 @@ export default function MobilePairModal({ isOpen, onClose }) {
     })
       .then((url) => setQrDataUrl(url))
       .catch((err) => console.error('Errore generazione QR:', err));
-  }, [isOpen, pairUrl]);
+  }, [isOpen, activeQrUrl]);
 
   if (!isOpen) return null;
 
   const handleCopy = () => {
-    navigator.clipboard.writeText(pairUrl);
+    navigator.clipboard.writeText(activeQrUrl);
     sounds.play('tick');
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
+  };
+
+  const handleEnableMobilePush = async () => {
+    sounds.play('tick');
+    let perm = 'in-app';
+    if (typeof window !== 'undefined' && 'Notification' in window) {
+      try {
+        perm = await window.Notification.requestPermission();
+      } catch {}
+    }
+    try {
+      const devId =
+        localStorage.getItem('botpark_mobile_device_id') ||
+        `pwa_${Math.random().toString(36).slice(2, 10)}`;
+      localStorage.setItem('botpark_mobile_device_id', devId);
+      await fetch('/api/push/register-device', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          deviceId: devId,
+          platform: activeTab,
+          pushToken: `web_pwa_${perm}`,
+        }),
+      });
+      await fetch('/api/bridge/antigravity', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          direction: 'system_test',
+          senderId: 'samantha',
+          senderName: 'Samantha',
+          senderColor: '#FF3B9A',
+          targetId: 'samantha',
+          targetName: 'Samantha',
+          message: `Dispositivo ${activeTab === 'iphone' ? 'iPhone' : 'Android'} registrato per le notifiche push!`,
+        }),
+      });
+      setPushStatus(`Notifiche push attive (${perm})! Dispositivo registrato.`);
+    } catch (e) {
+      setPushStatus('Errore attivazione push: ' + e.message);
+    }
   };
 
   return (
@@ -108,14 +154,17 @@ export default function MobilePairModal({ isOpen, onClose }) {
         {/* Selettore Guida iPhone / Android */}
         <div className="flex bg-[#F3F4F6] p-1 rounded-xl mb-3">
           <button
-            onClick={() => setActiveTab('iphone')}
+            onClick={() => {
+              setActiveTab('iphone');
+              setQrMode('web');
+            }}
             className={`flex-1 py-1.5 text-[12px] font-semibold rounded-lg transition-all cursor-pointer ${
               activeTab === 'iphone'
                 ? 'bg-white text-[#0B0B0D] shadow-xs'
                 : 'text-[#686A6E] hover:text-[#0B0B0D]'
             }`}
           >
-            🍎 iPhone (Schermata Home)
+            🍎 iPhone (App Web)
           </button>
           <button
             onClick={() => setActiveTab('android')}
@@ -125,12 +174,12 @@ export default function MobilePairModal({ isOpen, onClose }) {
                 : 'text-[#686A6E] hover:text-[#0B0B0D]'
             }`}
           >
-            🤖 Android (App)
+            🤖 Android (App .APK)
           </button>
         </div>
 
         {activeTab === 'iphone' ? (
-          <div className="text-left bg-[#F8F9FA] border border-black/[0.06] rounded-2xl p-3.5 mb-4 space-y-2 text-[12px] text-[#374151]">
+          <div className="text-left bg-[#F8F9FA] border border-black/[0.06] rounded-2xl p-3.5 mb-3 space-y-2 text-[12px] text-[#374151]">
             <div className="flex items-center gap-2.5">
               <span className="w-5 h-5 rounded-full bg-[#0B0B0D] text-white text-[11px] font-bold flex items-center justify-center shrink-0">
                 1
@@ -155,21 +204,51 @@ export default function MobilePairModal({ isOpen, onClose }) {
             </div>
           </div>
         ) : (
-          <div className="text-left bg-[#F8F9FA] border border-black/[0.06] rounded-2xl p-3.5 mb-4 space-y-2 text-[12px] text-[#374151]">
-            <div className="flex items-center gap-2.5">
-              <span className="w-5 h-5 rounded-full bg-[#0B0B0D] text-white text-[11px] font-bold flex items-center justify-center shrink-0">
-                1
-              </span>
-              <span>Inquadra il QR Code e apri il link in <b>Chrome</b>.</span>
+          <div className="text-left bg-[#F8F9FA] border border-black/[0.06] rounded-2xl p-3.5 mb-3 space-y-2.5 text-[12px] text-[#374151]">
+            <div className="flex items-center gap-1.5 bg-white p-1 rounded-lg border border-black/[0.06]">
+              <button
+                onClick={() => setQrMode('apk')}
+                className={`flex-1 py-1 rounded-md text-[11px] font-semibold cursor-pointer transition-all ${
+                  qrMode === 'apk' ? 'bg-[#0B0B0D] text-white' : 'text-[#686A6E]'
+                }`}
+              >
+                QR Download APK Nativo
+              </button>
+              <button
+                onClick={() => setQrMode('web')}
+                className={`flex-1 py-1 rounded-md text-[11px] font-semibold cursor-pointer transition-all ${
+                  qrMode === 'web' ? 'bg-[#0B0B0D] text-white' : 'text-[#686A6E]'
+                }`}
+              >
+                QR Web App Istantanea
+              </button>
             </div>
-            <div className="flex items-center gap-2.5">
-              <span className="w-5 h-5 rounded-full bg-[#0B0B0D] text-white text-[11px] font-bold flex items-center justify-center shrink-0">
-                2
-              </span>
-              <span className="flex items-center gap-1 flex-wrap">
-                Tocca il menu <b>⋮</b> in alto a destra e premi <b>«Installa app»</b> <Smartphone size={13} className="inline text-[#1084FE]" />.
-              </span>
+            <a
+              href="/BotParkMobile.apk"
+              download="BotParkMobile.apk"
+              className="w-full py-2 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-[12px] font-bold flex items-center justify-center gap-2 transition-colors"
+            >
+              <Download size={14} />
+              <span>Scarica App Nativa Android (.APK)</span>
+            </a>
+            <div className="text-[11px] text-[#686A6E] leading-snug">
+              Include Voce Live + Servizio Push nativo in background quando Bot e Antigravity comunicano.
             </div>
+          </div>
+        )}
+
+        {/* Attiva & Testa Notifiche Push su questo Dispositivo */}
+        <button
+          onClick={handleEnableMobilePush}
+          className="w-full mb-2 py-2 px-3 rounded-xl bg-[#F3F4F6] hover:bg-[#E5E7EB] text-[12px] font-semibold text-[#0B0B0D] flex items-center justify-center gap-2 transition-all cursor-pointer"
+        >
+          <Bell size={14} className="text-pink-600" />
+          <span>Attiva & Testa Notifiche Push su questo Dispositivo</span>
+        </button>
+
+        {pushStatus && (
+          <div className="text-[11px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-xl px-3 py-1.5 mb-2">
+            {pushStatus}
           </div>
         )}
 

@@ -11,6 +11,9 @@ const userDataDir = path.join(process.env.LOCALAPPDATA || app.getPath('appData')
 app.setPath('userData', userDataDir);
 app.commandLine.appendSwitch('disk-cache-dir', path.join(userDataDir, 'Cache'));
 app.commandLine.appendSwitch('disable-gpu-shader-disk-cache');
+if (process.platform === 'win32') {
+  app.setAppUserModelId('com.kitsunelabs.botpark');
+}
 
 const gotTheLock = app.requestSingleInstanceLock();
 if (!gotTheLock) {
@@ -53,6 +56,7 @@ function createWindow() {
   const icoPath = path.join(__dirname, '../public/bot_park_icon.ico');
   const pngPath = path.join(__dirname, '../public/bot_park_icon.png');
   const iconPath = process.platform === 'win32' && fs.existsSync(icoPath) ? icoPath : pngPath;
+  const appIcon = fs.existsSync(iconPath) ? nativeImage.createFromPath(iconPath) : undefined;
 
   mainWindow = new BrowserWindow({
     width: 1040,
@@ -65,7 +69,7 @@ function createWindow() {
     show: true,
     center: true,
     hasShadow: true,
-    icon: fs.existsSync(iconPath) ? iconPath : undefined,
+    icon: appIcon && !appIcon.isEmpty() ? appIcon : iconPath,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       nodeIntegration: false,
@@ -75,7 +79,14 @@ function createWindow() {
     },
   });
 
+  if (appIcon && !appIcon.isEmpty()) {
+    mainWindow.setIcon(appIcon);
+  }
+
   mainWindow.once('ready-to-show', () => {
+    if (appIcon && !appIcon.isEmpty()) {
+      mainWindow.setIcon(appIcon);
+    }
     mainWindow.setAlwaysOnTop(true);
     mainWindow.show();
     mainWindow.focus();
@@ -130,9 +141,12 @@ function createTray() {
   const icoPath = path.join(__dirname, '../public/bot_park_icon.ico');
   const pngPath = path.join(__dirname, '../public/bot_park_icon.png');
   const iconPath = process.platform === 'win32' && fs.existsSync(icoPath) ? icoPath : pngPath;
-  const trayIcon = fs.existsSync(iconPath)
-    ? nativeImage.createFromPath(iconPath).resize({ width: 20, height: 20 })
+  let trayIcon = fs.existsSync(iconPath)
+    ? nativeImage.createFromPath(iconPath)
     : nativeImage.createEmpty();
+  if (process.platform !== 'win32' && !trayIcon.isEmpty()) {
+    trayIcon = trayIcon.resize({ width: 20, height: 20 });
+  }
 
   tray = new Tray(trayIcon);
   const contextMenu = Menu.buildFromTemplate([

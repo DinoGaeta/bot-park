@@ -26,11 +26,17 @@ const DESKTOP_BRIDGE_PATH = path.join(os.homedir(), 'Desktop', 'BRIDGE_GROK_ANTI
 
 function getLocalLanIp() {
   const nets = os.networkInterfaces();
-  let fallback = '127.0.0.1';
+  let fallback = '172.20.10.5';
+  const ignoredAdapters = /vethernet|wsl|hyper-v|nord|vpn|vmware|virtual|loopback|tailscale/i;
   for (const name of Object.keys(nets)) {
+    if (ignoredAdapters.test(name)) continue;
     for (const net of nets[name] || []) {
       if (net.family === 'IPv4' && !net.internal) {
-        if (net.address.startsWith('192.168.') || net.address.startsWith('172.20.') || net.address.startsWith('10.')) {
+        if (
+          net.address.startsWith('192.168.') ||
+          net.address.startsWith('172.20.10.') ||
+          net.address.startsWith('10.')
+        ) {
           return net.address;
         }
         fallback = net.address;
