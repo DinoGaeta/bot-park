@@ -1,0 +1,805 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Bot Park — Enterprise Pitch Deck (12 Slide)</title>
+  <style>
+    :root {
+      --bg: #0b0b0d;
+      --surface: rgba(255, 255, 255, 0.045);
+      --border: rgba(255, 255, 255, 0.11);
+      --text: #f9fafb;
+      --muted: #9ca3af;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body {
+      width: 100%;
+      height: 100%;
+      background: #050507;
+      color: var(--text);
+      font-family: 'Plus Jakarta Sans', 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif;
+      overflow: hidden;
+    }
+    .deck-stage {
+      position: relative;
+      width: 100vw;
+      height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px 20px 66px 20px;
+    }
+    .slide {
+      display: none;
+      position: relative;
+      width: 100%;
+      max-width: 1360px;
+      aspect-ratio: 16 / 9;
+      max-height: 100%;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 22px;
+      padding: 36px 48px 28px 48px;
+      overflow: hidden;
+      flex-direction: column;
+      justify-content: space-between;
+      box-shadow: 0 32px 90px rgba(0, 0, 0, 0.72);
+    }
+    .slide.active {
+      display: flex;
+    }
+    .glow {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+    }
+    .slide-top {
+      position: relative;
+      z-index: 2;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      border-bottom: 1px solid rgba(255,255,255,0.08);
+      padding-bottom: 14px;
+    }
+    .brand-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      color: #e5e7eb;
+    }
+    .brand-dot {
+      width: 9px;
+      height: 9px;
+      border-radius: 999px;
+    }
+    .kicker {
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+    }
+    .slide-num {
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--muted);
+      font-variant-numeric: tabular-nums;
+    }
+    .slide-content {
+      position: relative;
+      z-index: 2;
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      gap: 24px;
+      padding: 18px 0;
+    }
+    .slide-header h2 {
+      font-size: clamp(24px, 2.7vw, 36px);
+      font-weight: 800;
+      letter-spacing: -0.025em;
+      line-height: 1.15;
+      color: #ffffff;
+    }
+    .slide-sub {
+      margin-top: 8px;
+      font-size: clamp(13px, 1.35vw, 17px);
+      color: #b4bac5;
+      line-height: 1.45;
+      max-width: 960px;
+    }
+    .hero-grid {
+      display: grid;
+      grid-template-columns: 1.25fr 0.95fr;
+      gap: 32px;
+      align-items: center;
+    }
+    .hero-title {
+      font-size: clamp(28px, 3.2vw, 44px);
+      font-weight: 800;
+      letter-spacing: -0.03em;
+      line-height: 1.1;
+      color: #ffffff;
+    }
+    .hero-sub {
+      margin-top: 16px;
+      font-size: clamp(14px, 1.4vw, 18px);
+      color: #cbd5e1;
+      line-height: 1.5;
+    }
+    .hero-pill-row {
+      margin-top: 22px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    .pill {
+      padding: 7px 13px;
+      border-radius: 999px;
+      background: rgba(255,255,255,0.06);
+      border: 1px solid rgba(255,255,255,0.14);
+      font-size: 12px;
+      font-weight: 600;
+      color: #e2e8f0;
+    }
+    .metrics-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px;
+    }
+    .metric-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 20px;
+    }
+    .metric-val {
+      font-size: clamp(24px, 2.5vw, 34px);
+      font-weight: 800;
+      letter-spacing: -0.02em;
+    }
+    .metric-lbl {
+      margin-top: 6px;
+      font-size: 12.5px;
+      color: #cbd5e1;
+      font-weight: 500;
+    }
+    .grid-3 {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 18px;
+    }
+    .grid-2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 20px;
+    }
+    .grid-4 {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 14px;
+    }
+    .glass-card, .step-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 22px 22px 24px 22px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .card-tag {
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+    }
+    .step-badge {
+      display: inline-block;
+      align-self: flex-start;
+      padding: 4px 10px;
+      border-radius: 999px;
+      border: 1px solid;
+      font-size: 10.5px;
+      font-weight: 800;
+      letter-spacing: 0.08em;
+    }
+    .card-head {
+      font-size: clamp(16px, 1.5vw, 20px);
+      font-weight: 700;
+      color: #ffffff;
+      line-height: 1.25;
+    }
+    .card-body {
+      font-size: clamp(12.5px, 1.15vw, 15px);
+      color: #cbd5e1;
+      line-height: 1.52;
+    }
+    .clean-list {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 11px;
+      margin-top: 4px;
+    }
+    .clean-list li {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      font-size: clamp(12.5px, 1.12vw, 14.5px);
+      color: #e2e8f0;
+      line-height: 1.42;
+    }
+    .dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 999px;
+      margin-top: 6px;
+      flex-shrink: 0;
+    }
+    .table-wrap {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      overflow: hidden;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: clamp(12px, 1.1vw, 14.5px);
+    }
+    th, td {
+      padding: 13px 16px;
+      text-align: left;
+      border-bottom: 1px solid rgba(255,255,255,0.08);
+    }
+    th {
+      background: rgba(255,255,255,0.05);
+      color: #94a3b8;
+      font-size: 11.5px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+    td.col-bold { font-weight: 700; color: #ffffff; }
+    td.col-hl { font-weight: 700; color: #4ade80; background: rgba(34,197,94,0.08); }
+    tr:last-child td { border-bottom: none; }
+    .slide-foot {
+      position: relative;
+      z-index: 2;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-top: 1px solid rgba(255,255,255,0.08);
+      padding-top: 12px;
+      font-size: 11px;
+      color: #6b7280;
+    }
+    .controls {
+      position: fixed;
+      bottom: 14px;
+      left: 50%;
+      transform: translateX(-50%);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 14px;
+      border-radius: 999px;
+      background: rgba(17, 18, 22, 0.92);
+      border: 1px solid rgba(255,255,255,0.14);
+      backdrop-filter: blur(12px);
+      z-index: 50;
+    }
+    .controls button {
+      background: rgba(255,255,255,0.08);
+      border: 1px solid rgba(255,255,255,0.14);
+      color: #f9fafb;
+      font-size: 12px;
+      font-weight: 600;
+      padding: 6px 12px;
+      border-radius: 999px;
+      cursor: pointer;
+    }
+    .controls button:hover { background: rgba(255,255,255,0.16); }
+    .controls .counter {
+      font-size: 12px;
+      font-weight: 700;
+      color: #e5e7eb;
+      min-width: 56px;
+      text-align: center;
+    }
+    @media print {
+      @page { size: 16in 9in; margin: 0; }
+      html, body {
+        width: 16in;
+        height: auto;
+        background: #0b0b0d;
+        overflow: visible;
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+      }
+      .controls { display: none !important; }
+      .deck-stage {
+        display: block;
+        width: 16in;
+        height: auto;
+        padding: 0;
+      }
+      .slide {
+        display: flex !important;
+        width: 16in !important;
+        height: 9in !important;
+        max-width: none !important;
+        max-height: none !important;
+        border: none !important;
+        border-radius: 0 !important;
+        box-shadow: none !important;
+        page-break-after: always;
+        break-after: page;
+        padding: 46px 64px 36px 64px;
+      }
+      .slide:last-child {
+        page-break-after: auto;
+        break-after: auto;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="deck-stage">
+    
+    <section class="slide active" data-index="0">
+      <div class="glow" style="background:radial-gradient(circle at 85% 15%, #FF3B9A26, transparent 52%), radial-gradient(circle at 10% 90%, #1084FE1f, transparent 50%)"></div>
+      <div class="slide-top">
+        <div class="brand-chip">
+          <span class="brand-dot" style="background:#FF3B9A"></span>
+          <span>BOT PARK • KITSUNE LABS</span>
+        </div>
+        <div class="kicker" style="color:#FF3B9A">KITSUNE LABS × ENTERPRISE B2B BRIEF</div>
+        <div class="slide-num">01 / 12</div>
+      </div>
+      <div class="slide-content">
+        
+        <div class="hero-grid">
+          <div class="hero-copy">
+            <h1 class="hero-title">Bot Park — Il Sistema Operativo Multi-Agente 100% Local-First</h1>
+            <p class="hero-sub">Zero latenza. Piena proprietà dei dati. Un'orchestra di agenti specializzati in Entanglement tra Desktop, Mobile e IDE.</p>
+            <div class="hero-pill-row">
+              <span class="pill">Electron Desktop Nativo</span>
+              <span class="pill">Android Native APK + Push</span>
+              <span class="pill">SSE Entanglement + CRDT</span>
+              <span class="pill">Bridge IDE Autonomo</span>
+            </div>
+          </div>
+          <div class="metrics-grid"><div class="metric-card">
+                <div class="metric-val" style="color:#FF3B9A">&lt; 50 ms</div>
+                <div class="metric-lbl">Sync Entanglement SSE</div>
+            </div><div class="metric-card">
+                <div class="metric-val" style="color:#FF3B9A">100%</div>
+                <div class="metric-lbl">Sovranità Dati Local-First</div>
+            </div><div class="metric-card">
+                <div class="metric-val" style="color:#FF3B9A">€35k–75k+</div>
+                <div class="metric-lbl">Capex R&amp;D Risparmiato</div>
+            </div><div class="metric-card">
+                <div class="metric-val" style="color:#FF3B9A">4–6 Mesi</div>
+                <div class="metric-lbl">Time-to-Market Accelerato</div>
+            </div></div>
+        </div>
+      </div>
+      <div class="slide-foot">
+        <span>Strategia Commerciale: Arthur × Antigravity • Documento Riservato Enterprise</span>
+        <span>bot-park • Local-First AI OS</span>
+      </div>
+    </section>
+    <section class="slide" data-index="1">
+      <div class="glow" style="background:radial-gradient(circle at 85% 15%, #F43F5E26, transparent 52%), radial-gradient(circle at 10% 90%, #1084FE1f, transparent 50%)"></div>
+      <div class="slide-top">
+        <div class="brand-chip">
+          <span class="brand-dot" style="background:#F43F5E"></span>
+          <span>BOT PARK • KITSUNE LABS</span>
+        </div>
+        <div class="kicker" style="color:#F43F5E">IL PROBLEMA DI MERCATO</div>
+        <div class="slide-num">02 / 12</div>
+      </div>
+      <div class="slide-content">
+        
+        <div class="slide-header">
+          <h2>Perché le Aziende Rallentano con i Chatbot Generici</h2>
+          <p class="slide-sub">I modelli attuali vivono isolati dal contesto operativo reale e generano costi ed esposizione crescenti.</p>
+        </div>
+        <div class="grid-3"><div class="glass-card">
+                <div class="card-tag" style="color:#F43F5E">01 • FRAMMENTAZIONE</div>
+                <h3 class="card-head">Assistenti Isolati senza Memoria</h3>
+                <p class="card-body">Decine di tab browser scollegate, perdita di contesto ogni giorno e zero azione diretta su file locali, IDE o dispositivi aziendali.</p>
+            </div><div class="glass-card">
+                <div class="card-tag" style="color:#F43F5E">02 • RISCHIO &amp; LOCK-IN</div>
+                <h3 class="card-head">Esposizione Dati &amp; Costi per Seat</h3>
+                <p class="card-body">Prompt e documenti aziendali restano su cloud terzi opachi (rischio GDPR / EU AI Act) con canoni SaaS che crescono linearmente con il team.</p>
+            </div><div class="glass-card">
+                <div class="card-tag" style="color:#F43F5E">03 • DISCONNESSIONE</div>
+                <h3 class="card-head">Zero Continuità Cross-Device</h3>
+                <p class="card-body">Ciò che avvii sullo smartphone in mobilità non si riflette in tempo reale sulla workstation Desktop né nei flussi di produzione.</p>
+            </div></div>
+      </div>
+      <div class="slide-foot">
+        <span>Strategia Commerciale: Arthur × Antigravity • Documento Riservato Enterprise</span>
+        <span>bot-park • Local-First AI OS</span>
+      </div>
+    </section>
+    <section class="slide" data-index="2">
+      <div class="glow" style="background:radial-gradient(circle at 85% 15%, #00C97226, transparent 52%), radial-gradient(circle at 10% 90%, #1084FE1f, transparent 50%)"></div>
+      <div class="slide-top">
+        <div class="brand-chip">
+          <span class="brand-dot" style="background:#00C972"></span>
+          <span>BOT PARK • KITSUNE LABS</span>
+        </div>
+        <div class="kicker" style="color:#00C972">LA SOLUZIONE — BOT PARK OS</div>
+        <div class="slide-num">03 / 12</div>
+      </div>
+      <div class="slide-content">
+        
+        <div class="slide-header">
+          <h2>Un Reparto Digitale Unificato Sotto il Tuo Controllo</h2>
+          <p class="slide-sub">Capo Bot orchestratore (Samantha) + team di agenti verticali con identità, voce ElevenLabs e workspace reale su disco.</p>
+        </div>
+        <div class="grid-2">
+          <div class="glass-card">
+            <div class="card-tag" style="color:#00C972">Squadra Coordinata per Ruolo</div>
+            <ul class="clean-list"><li><span class='dot' style='background:#00C972'></span><span>Samantha (Capo Bot): smistamento priorità, routine, memoria condivisa e controllo Smart TV OS1.</span></li><li><span class='dot' style='background:#00C972'></span><span>Arthur (Business &amp; Sales): strategia commerciale B2B, pitch enterprise e modelli di licensing.</span></li><li><span class='dot' style='background:#00C972'></span><span>Team Creativo &amp; Dev: Giulia (Editoriale), Italo (Script), Laika (Visual), Spielberg (Video), Piton (Script), Bastione (Security).</span></li></ul>
+          </div>
+          <div class="glass-card">
+            <div class="card-tag" style="color:#38BDF8">Ogni Agente Possiede</div>
+            <ul class="clean-list"><li><span class='dot' style='background:#38BDF8'></span><span>Stanze di Lavoro Isolate (Multi-Stanza): contesti puliti per singolo progetto senza rumore.</span></li><li><span class='dot' style='background:#38BDF8'></span><span>Memoria Markdown Auditabile: fatti e skill salvati in workspaces/&lt;botId&gt;/memoria_agente.md.</span></li><li><span class='dot' style='background:#38BDF8'></span><span>Libreria File Reale &amp; Voce Dedicata: lettura/scrittura su disco + ElevenLabs Low-Latency TTS.</span></li></ul>
+          </div>
+        </div>
+      </div>
+      <div class="slide-foot">
+        <span>Strategia Commerciale: Arthur × Antigravity • Documento Riservato Enterprise</span>
+        <span>bot-park • Local-First AI OS</span>
+      </div>
+    </section>
+    <section class="slide" data-index="3">
+      <div class="glow" style="background:radial-gradient(circle at 85% 15%, #1084FE26, transparent 52%), radial-gradient(circle at 10% 90%, #1084FE1f, transparent 50%)"></div>
+      <div class="slide-top">
+        <div class="brand-chip">
+          <span class="brand-dot" style="background:#1084FE"></span>
+          <span>BOT PARK • KITSUNE LABS</span>
+        </div>
+        <div class="kicker" style="color:#1084FE">LIVE DEMO STORY END-TO-END</div>
+        <div class="slide-num">04 / 12</div>
+      </div>
+      <div class="slide-content">
+        
+        <div class="slide-header">
+          <h2>Dal Comando su Smartphone al Deliverable Reale su PC</h2>
+          <p class="slide-sub">Il flusso reale già funzionante tra app Android nativa, Electron Desktop e ambiente IDE Antigravity.</p>
+        </div>
+        <div class="grid-4"><div class="step-card">
+                <div class="step-badge" style="border-color:#1084FE;color:#1084FE">1. INPUT MOBILE</div>
+                <h3 class="card-head">Richiesta da Smartphone</h3>
+                <p class="card-body">Dion chiede ad Arthur (via app Android o PWA LAN) la creazione di un nuovo asset o pitch commerciale.</p>
+            </div><div class="step-card">
+                <div class="step-badge" style="border-color:#1084FE;color:#1084FE">2. ENTANGLEMENT</div>
+                <h3 class="card-head">Propagazione SSE Istantanea</h3>
+                <p class="card-body">In &lt; 50ms il bus /api/sync/stream + merge atomico CRDT sincronizza l'agente e il thread su Desktop Electron.</p>
+            </div><div class="step-card">
+                <div class="step-badge" style="border-color:#1084FE;color:#1084FE">3. PONTE IDE</div>
+                <h3 class="card-head">Esecuzione &lt;&lt;&lt;SEND_TO_ANTIGRAVITY&gt;&gt;&gt;</h3>
+                <p class="card-body">Il watcher reattivo recapita il task ad Antigravity che genera documenti, PDF, PPTX o codice reale su disco.</p>
+            </div><div class="step-card">
+                <div class="step-badge" style="border-color:#1084FE;color:#1084FE">4. PUSH UNIVERSAL</div>
+                <h3 class="card-head">Notifica Immediata Ovunque</h3>
+                <p class="card-body">Notifiche Windows Toast, Browser PWA e Foreground Service Android avvisano appena il deliverable è pronto.</p>
+            </div></div>
+      </div>
+      <div class="slide-foot">
+        <span>Strategia Commerciale: Arthur × Antigravity • Documento Riservato Enterprise</span>
+        <span>bot-park • Local-First AI OS</span>
+      </div>
+    </section>
+    <section class="slide" data-index="4">
+      <div class="glow" style="background:radial-gradient(circle at 85% 15%, #38BDF826, transparent 52%), radial-gradient(circle at 10% 90%, #1084FE1f, transparent 50%)"></div>
+      <div class="slide-top">
+        <div class="brand-chip">
+          <span class="brand-dot" style="background:#38BDF8"></span>
+          <span>BOT PARK • KITSUNE LABS</span>
+        </div>
+        <div class="kicker" style="color:#38BDF8">ARCHITETTURA QUANTUM ENTANGLEMENT</div>
+        <div class="slide-num">05 / 12</div>
+      </div>
+      <div class="slide-content">
+        
+        <div class="slide-header">
+          <h2>Stack Zero-Bloat &amp; Bus Reattivo a Doppio Livello</h2>
+          <p class="slide-sub">Eliminati i pesanti layer intermedi SaaS: tutto gira veloce tra Frontend React, Electron Desktop, Android SDK e Middleware Node/Vite.</p>
+        </div>
+        <div class="grid-2">
+          <div class="glass-card">
+            <div class="card-tag" style="color:#38BDF8">4 Client in Entanglement Real-Time</div>
+            <ul class="clean-list"><li><span class='dot' style='background:#38BDF8'></span><span>Desktop Shell Electron (com.kitsunelabs.botpark): tray nativa, launcher senza console e notifiche Windows.</span></li><li><span class='dot' style='background:#38BDF8'></span><span>Web App &amp; PWA Sub-Secondo: React 18 + Vite 6 + Framer Motion + TailwindCSS v4.</span></li><li><span class='dot' style='background:#38BDF8'></span><span>App Android Nativa (BotParkMobile.apk): WebView con permessi Mic/Tel/Cam/Bluetooth/Storage + Push Foreground Service.</span></li><li><span class='dot' style='background:#38BDF8'></span><span>Smart Display / Android TV Bridge: controllo vocale e intent ADB LAN (172.20.10.3:5555).</span></li></ul>
+          </div>
+          <div class="glass-card">
+            <div class="card-tag" style="color:#38BDF8">Sincronizzazione CRDT Zero-Sovrascritture</div>
+            <ul class="clean-list"><li><span class='dot' style='background:#38BDF8'></span><span>Stream Persistente GET /api/sync/stream (Server-Sent Events) verso tutti i nodi connessi.</span></li><li><span class='dot' style='background:#38BDF8'></span><span>Merge Atomico mergeEntangledState() per botId, stanze (sessions), memorie (cap 200) e skill.</span></li><li><span class='dot' style='background:#38BDF8'></span><span>Gestione esplicita di eliminazioni (deletedBotIds) e switch stanza senza race condition.</span></li><li><span class='dot' style='background:#38BDF8'></span><span>Fallback HTTP di sicurezza su LAN Wi-Fi ad ogni riconnessione mobile.</span></li></ul>
+          </div>
+        </div>
+      </div>
+      <div class="slide-foot">
+        <span>Strategia Commerciale: Arthur × Antigravity • Documento Riservato Enterprise</span>
+        <span>bot-park • Local-First AI OS</span>
+      </div>
+    </section>
+    <section class="slide" data-index="5">
+      <div class="glow" style="background:radial-gradient(circle at 85% 15%, #10B98126, transparent 52%), radial-gradient(circle at 10% 90%, #1084FE1f, transparent 50%)"></div>
+      <div class="slide-top">
+        <div class="brand-chip">
+          <span class="brand-dot" style="background:#10B981"></span>
+          <span>BOT PARK • KITSUNE LABS</span>
+        </div>
+        <div class="kicker" style="color:#10B981">SICUREZZA, PRIVACY &amp; COMPLIANCE</div>
+        <div class="slide-num">06 / 12</div>
+      </div>
+      <div class="slide-content">
+        
+        <div class="slide-header">
+          <h2>Sovranità Totale del Dato: GDPR &amp; EU AI Act Ready</h2>
+          <p class="slide-sub">Progettato per CTO, CISO ed Enterprise IT che rifiutano il lock-in e l'esposizione di asset strategici.</p>
+        </div>
+        <div class="grid-3"><div class="glass-card">
+                <div class="card-tag" style="color:#10B981">LOCAL-FIRST BY DESIGN</div>
+                <h3 class="card-head">Zero Database Cloud Centrali</h3>
+                <p class="card-body">Nessun server proprietario accumula prompt, allegati riservati o strategie aziendali. Tutto risiede sul nodo o rete on-premise del cliente.</p>
+            </div><div class="glass-card">
+                <div class="card-tag" style="color:#10B981">BYOK &amp; CASSAFORTE LOCALE</div>
+                <h3 class="card-head">Controllo Chiavi &amp; Sanitizzazione</h3>
+                <p class="card-body">Supporto Bring Your Own Key (Gemini, ElevenLabs) in _vault.json locale + pipeline di sanitizzazione automatica per i branch pubblici.</p>
+            </div><div class="glass-card">
+                <div class="card-tag" style="color:#10B981">MEMORIA AUDITABILE</div>
+                <h3 class="card-head">Trasparenza Markdown &amp; Rotazione</h3>
+                <p class="card-body">Ogni fatto ricordato è leggibile in plain Markdown (memoria_agente.md) con rotazione controllata per tenere l'impronta su disco minima.</p>
+            </div></div>
+      </div>
+      <div class="slide-foot">
+        <span>Strategia Commerciale: Arthur × Antigravity • Documento Riservato Enterprise</span>
+        <span>bot-park • Local-First AI OS</span>
+      </div>
+    </section>
+    <section class="slide" data-index="6">
+      <div class="glow" style="background:radial-gradient(circle at 85% 15%, #A855F726, transparent 52%), radial-gradient(circle at 10% 90%, #1084FE1f, transparent 50%)"></div>
+      <div class="slide-top">
+        <div class="brand-chip">
+          <span class="brand-dot" style="background:#A855F7"></span>
+          <span>BOT PARK • KITSUNE LABS</span>
+        </div>
+        <div class="kicker" style="color:#A855F7">ORCHESTRAZIONE &amp; SOSTENIBILITÀ</div>
+        <div class="slide-num">07 / 12</div>
+      </div>
+      <div class="slide-content">
+        
+        <div class="slide-header">
+          <h2>Stanze Multi-Sessione &amp; Delega Inter-Agente Autonoma</h2>
+          <p class="slide-sub">Lavoro modulare a zero rumore: ogni progetto vive nella propria stanza e gli agenti si coordinano da soli.</p>
+        </div>
+        <div class="grid-2">
+          <div class="glass-card">
+            <div class="card-tag" style="color:#A855F7">Comandi Operativi Integrati</div>
+            <ul class="clean-list"><li><span class='dot' style='background:#A855F7'></span><span>&lt;&lt;&lt;NEW_CHAT_SESSION&gt;&gt;&gt;: apre in autonomia una stanza pulita dedicata al singolo deliverable.</span></li><li><span class='dot' style='background:#A855F7'></span><span>&lt;&lt;&lt;SEND_TO_BOT&gt;&gt;&gt;: delega compiti tra reparti (es. Arthur → Laika → Italo) mantenendo i ruoli separati.</span></li><li><span class='dot' style='background:#A855F7'></span><span>&lt;&lt;&lt;WRITE_FILE&gt;&gt;&gt; &amp; &lt;&lt;&lt;REMEMBER&gt;&gt;&gt;: crea documenti reali nel workspace e consolida regole permanenti.</span></li><li><span class='dot' style='background:#A855F7'></span><span>&lt;&lt;&lt;SEND_TO_ANTIGRAVITY&gt;&gt;&gt; (isolated: true): avvia subagent tecnici isolati senza inquinare il contesto principale.</span></li></ul>
+          </div>
+          <div class="glass-card">
+            <div class="card-tag" style="color:#38BDF8">Scheduler Routine &amp; Automazioni</div>
+            <ul class="clean-list"><li><span class='dot' style='background:#38BDF8'></span><span>Engine locale di routine giornaliere configurabili per ora (HH:MM) e agente assegnato.</span></li><li><span class='dot' style='background:#38BDF8'></span><span>Briefing mattutini automatici con lettura live meteo/news o stato sistemi.</span></li><li><span class='dot' style='background:#38BDF8'></span><span>Inoltro vocale opzionale su Smart TV / salotto o report in chat condivisa.</span></li><li><span class='dot' style='background:#38BDF8'></span><span>Architettura sostenibile: nessun contesto gonfiato all'infinito grazie alle Stanze dedicate.</span></li></ul>
+          </div>
+        </div>
+      </div>
+      <div class="slide-foot">
+        <span>Strategia Commerciale: Arthur × Antigravity • Documento Riservato Enterprise</span>
+        <span>bot-park • Local-First AI OS</span>
+      </div>
+    </section>
+    <section class="slide" data-index="7">
+      <div class="glow" style="background:radial-gradient(circle at 85% 15%, #EC489926, transparent 52%), radial-gradient(circle at 10% 90%, #1084FE1f, transparent 50%)"></div>
+      <div class="slide-top">
+        <div class="brand-chip">
+          <span class="brand-dot" style="background:#EC4899"></span>
+          <span>BOT PARK • KITSUNE LABS</span>
+        </div>
+        <div class="kicker" style="color:#EC4899">ESPERIENZA MULTIMODALE</div>
+        <div class="slide-num">08 / 12</div>
+      </div>
+      <div class="slide-content">
+        
+        <div class="slide-header">
+          <h2>Testo, Chiamate Vocali Live, Computer Proxy &amp; IoT</h2>
+          <p class="slide-sub">Un'unica interfaccia Apple-Style ad alta cura visiva per interagire con gli agenti via voce, documenti, schermo o browser integrato.</p>
+        </div>
+        <div class="grid-3"><div class="glass-card">
+                <div class="card-tag" style="color:#EC4899">VOICE AI LIVE</div>
+                <h3 class="card-head">Chiamate Vocali Barge-In &amp; TTS</h3>
+                <p class="card-body">Riconoscimento vocale continuo con sintesi vocale ElevenLabs per singolo personaggio e trascrizione automatica nella stanza attiva.</p>
+            </div><div class="glass-card">
+                <div class="card-tag" style="color:#EC4899">VIRTUAL COMPUTER</div>
+                <h3 class="card-head">Proxy Web, Terminale &amp; Editor</h3>
+                <p class="card-body">Browser proxy locale anti-CORS, screenshot PC istantaneo (/api/pc/screenshot) ed editor file integrato per ispezionare e modificare deliverable.</p>
+            </div><div class="glass-card">
+                <div class="card-tag" style="color:#EC4899">ANDROID NATIVE &amp; TV</div>
+                <h3 class="card-head">Controllo Hardware Reale</h3>
+                <p class="card-body">Sblocco permessi nativi Android (Mic, Telefono, Camera, Bluetooth) su smartphone + controllo app e sintesi vocale su Android TV via ADB.</p>
+            </div></div>
+      </div>
+      <div class="slide-foot">
+        <span>Strategia Commerciale: Arthur × Antigravity • Documento Riservato Enterprise</span>
+        <span>bot-park • Local-First AI OS</span>
+      </div>
+    </section>
+    <section class="slide" data-index="8">
+      <div class="glow" style="background:radial-gradient(circle at 85% 15%, #22C55E26, transparent 52%), radial-gradient(circle at 10% 90%, #1084FE1f, transparent 50%)"></div>
+      <div class="slide-top">
+        <div class="brand-chip">
+          <span class="brand-dot" style="background:#22C55E"></span>
+          <span>BOT PARK • KITSUNE LABS</span>
+        </div>
+        <div class="kicker" style="color:#22C55E">ECONOMIA DI INFRASTRUTTURA &amp; ROI</div>
+        <div class="slide-num">09 / 12</div>
+      </div>
+      <div class="slide-content">
+        
+        <div class="slide-header">
+          <h2>Confronto Economico vs Sviluppo Custom &amp; SaaS Cloud</h2>
+          <p class="slide-sub">Abbatti sia il capex iniziale di R&amp;D sia i costi ricorrenti per postazione con un asset già Production-Ready.</p>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Metrica Chiave</th><th>SaaS AI Tradizionale</th><th>Sviluppo Custom da Zero</th><th>Bot Park (Kitsune Labs)</th></tr></thead>
+            <tbody><tr><td class='col-bold'>Time-to-Market</td><td class=''>Immediato (limitato)</td><td class=''>4 – 6+ Mesi Senior R&amp;D</td><td class='col-hl'>Immediato (Asset Pronto)</td></tr><tr><td class='col-bold'>Investimento Iniziale</td><td class=''>Canoni per seat crescenti</td><td class=''>€35.000 – €75.000+</td><td class='col-hl'>Licenza Fissa o Acquisizione IP</td></tr><tr><td class='col-bold'>Costi Server Centrali</td><td class=''>Margini SaaS ricorrenti</td><td class=''>Alti (DevOps &amp; Hosting)</td><td class='col-hl'>Quasi Zero (Local-First + BYOK)</td></tr><tr><td class='col-bold'>Proprietà Dati &amp; Codice</td><td class=''>Zero IP / Vendor Lock-in</td><td class=''>Alta manutenzione interna</td><td class='col-hl'>100% Controllo &amp; Sovranità</td></tr><tr><td class='col-bold'>Sync Mobile ↔ Desktop ↔ IDE</td><td class=''>Assente o manuale</td><td class=''>Complesso (SSE + Android SDK)</td><td class='col-hl'>Entanglement Nativizzato</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+      <div class="slide-foot">
+        <span>Strategia Commerciale: Arthur × Antigravity • Documento Riservato Enterprise</span>
+        <span>bot-park • Local-First AI OS</span>
+      </div>
+    </section>
+    <section class="slide" data-index="9">
+      <div class="glow" style="background:radial-gradient(circle at 85% 15%, #F59E0B26, transparent 52%), radial-gradient(circle at 10% 90%, #1084FE1f, transparent 50%)"></div>
+      <div class="slide-top">
+        <div class="brand-chip">
+          <span class="brand-dot" style="background:#F59E0B"></span>
+          <span>BOT PARK • KITSUNE LABS</span>
+        </div>
+        <div class="kicker" style="color:#F59E0B">CASI D'USO ENTERPRISE IMMEDIATI</div>
+        <div class="slide-num">10 / 12</div>
+      </div>
+      <div class="slide-content">
+        
+        <div class="slide-header">
+          <h2>Valore dal Giorno 1 in Tre Verticali ad Alto Impatto</h2>
+          <p class="slide-sub">Adattabile in poche ore ai flussi operativi di team marketing, dipartimenti IT e leadership aziendale.</p>
+        </div>
+        <div class="grid-3"><div class="glass-card">
+                <div class="card-tag" style="color:#F59E0B">AGENZIE &amp; MEDIA TEAM</div>
+                <h3 class="card-head">Produzione Campagne &amp; Content</h3>
+                <p class="card-body">Strategist, Copywriter, Visual Designer e Video Editor AI lavorano su brief condivisi generando script e piani editoriali salvati su disco.</p>
+            </div><div class="glass-card">
+                <div class="card-tag" style="color:#F59E0B">SOFTWARE HOUSE &amp; CTO OFFICE</div>
+                <h3 class="card-head">Product-to-Code Bridge</h3>
+                <p class="card-body">PM e Business Strategist raccolgono requisiti da mobile o riunione e li inviano direttamente all'IDE Antigravity via subagent isolati.</p>
+            </div><div class="glass-card">
+                <div class="card-tag" style="color:#F59E0B">DIREZIONE &amp; EXECUTIVE SUPPORT</div>
+                <h3 class="card-head">Decision Intelligence &amp; Mobilità</h3>
+                <p class="card-body">Briefing giornalieri automatizzati, ricerca documentale istantanea (Ctrl+K), report esecutivi e notifiche push prioritarie su ogni schermo.</p>
+            </div></div>
+      </div>
+      <div class="slide-foot">
+        <span>Strategia Commerciale: Arthur × Antigravity • Documento Riservato Enterprise</span>
+        <span>bot-park • Local-First AI OS</span>
+      </div>
+    </section>
+    <section class="slide" data-index="10">
+      <div class="glow" style="background:radial-gradient(circle at 85% 15%, #3B82F626, transparent 52%), radial-gradient(circle at 10% 90%, #1084FE1f, transparent 50%)"></div>
+      <div class="slide-top">
+        <div class="brand-chip">
+          <span class="brand-dot" style="background:#3B82F6"></span>
+          <span>BOT PARK • KITSUNE LABS</span>
+        </div>
+        <div class="kicker" style="color:#3B82F6">OPZIONI COMMERCIALI &amp; ACQUISIZIONE B2B</div>
+        <div class="slide-num">11 / 12</div>
+      </div>
+      <div class="slide-content">
+        
+        <div class="slide-header">
+          <h2>Tre Strade Chiare di Partnership, Licensing o M&amp;A</h2>
+          <p class="slide-sub">Modelli flessibili costruiti per adattarsi al bilancio IT, alla strategia di prodotto o all'acquisizione dell'asset.</p>
+        </div>
+        <div class="grid-3"><div class="glass-card">
+                <div class="card-tag" style="color:#3B82F6">PIANO A • ON-PREMISE</div>
+                <h3 class="card-head">Enterprise On-Premise License</h3>
+                <p class="card-body">Installazione dedicata sull'infrastruttura aziendale, configurazione chiavi BYOK, personalizzazione agenti di reparto, formazione e SLA.</p>
+            </div><div class="glass-card">
+                <div class="card-tag" style="color:#3B82F6">PIANO B • OEM / REBRAND</div>
+                <h3 class="card-head">White-Label SaaS / OEM</h3>
+                <p class="card-body">Rebranding completo del client Electron Desktop, Web App e App Android (.APK) sotto marchio proprietario dell'acquirente per distribuzione di gruppo.</p>
+            </div><div class="glass-card">
+                <div class="card-tag" style="color:#3B82F6">PIANO C • ASSET M&amp;A</div>
+                <h3 class="card-head">Acquisizione Completa IP &amp; Codebase</h3>
+                <p class="card-body">Trasferimento integrale del codice sorgente (React, Electron, Middleware Node, Android Java SDK, bridge IDE) e handover tecnico completo.</p>
+            </div></div>
+      </div>
+      <div class="slide-foot">
+        <span>Strategia Commerciale: Arthur × Antigravity • Documento Riservato Enterprise</span>
+        <span>bot-park • Local-First AI OS</span>
+      </div>
+    </section>
+    <section class="slide" data-index="11">
+      <div class="glow" style="background:radial-gradient(circle at 85% 15%, #00C97226, transparent 52%), radial-gradient(circle at 10% 90%, #1084FE1f, transparent 50%)"></div>
+      <div class="slide-top">
+        <div class="brand-chip">
+          <span class="brand-dot" style="background:#00C972"></span>
+          <span>BOT PARK • KITSUNE LABS</span>
+        </div>
+        <div class="kicker" style="color:#00C972">ROADMAP DI ADOZIONE &amp; CALL TO ACTION</div>
+        <div class="slide-num">12 / 12</div>
+      </div>
+      <div class="slide-content">
+        
+        <div class="slide-header">
+          <h2>In Produzione nei Vostri Flussi in 30 Giorni</h2>
+          <p class="slide-sub">Prossimo passo: Live Executive Demo di 20 minuti su caso d'uso reale + walkthrough tecnico del codice sorgente.</p>
+        </div>
+        <div class="grid-4"><div class="step-card">
+                <div class="step-badge" style="border-color:#00C972;color:#00C972">SETTIMANA 1</div>
+                <h3 class="card-head">Audit Sicurezza &amp; BYOK</h3>
+                <p class="card-body">Verifica conformità interna, setup delle chiavi API aziendali nella cassaforte locale e policy di rete.</p>
+            </div><div class="step-card">
+                <div class="step-badge" style="border-color:#00C972;color:#00C972">SETTIMANA 2</div>
+                <h3 class="card-head">Forgiatura Squadra Agenti</h3>
+                <p class="card-body">Configurazione di ruoli, stanze, memorie iniziali e integrazione dei documenti di processo dell'azienda.</p>
+            </div><div class="step-card">
+                <div class="step-badge" style="border-color:#00C972;color:#00C972">SETTIMANA 3</div>
+                <h3 class="card-head">Rollout Desktop &amp; Android</h3>
+                <p class="card-body">Distribuzione della shell Desktop Electron e dell'app Mobile aziendale con sync Entanglement attiva.</p>
+            </div><div class="step-card">
+                <div class="step-badge" style="border-color:#00C972;color:#00C972">SETTIMANA 4</div>
+                <h3 class="card-head">Go-Live &amp; KPI Operativi</h3>
+                <p class="card-body">Attivazione delle routine autonome, misurazione tempi risparmiati e sessione di handover con i referenti IT.</p>
+            </div></div>
+      </div>
+      <div class="slide-foot">
+        <span>Strategia Commerciale: Arthur × Antigravity • Documento Riservato Enterprise</span>
+        <span>bot-park • Local-First AI OS</span>
+      </div>
+    </section>
+  </div>
+  <div class="controls">
+    <button onclick="prevSlide()">← Prec</button>
+    <span class="counter" id="counter">1 / 12</span>
+    <button onclick="nextSlide()">Succ →</button>
+    <button onclick="window.print()">Esporta PDF</button>
+    <button onclick="toggleFs()">Schermo Intero</button>
+  </div>
+  <script>
+    const slides = Array.from(document.querySelectorAll('.slide'));
+    let current = 0;
+    function showSlide(i) {
+      current = Math.max(0, Math.min(slides.length - 1, i));
+      slides.forEach((s, idx) => s.classList.toggle('active', idx === current));
+      document.getElementById('counter').textContent = `${current + 1} / ${slides.length}`;
+    }
+    function nextSlide() { showSlide(current + 1); }
+    function prevSlide() { showSlide(current - 1); }
+    function toggleFs() {
+      if (!document.fullscreenElement) document.documentElement.requestFullscreen?.();
+      else document.exitFullscreen?.();
+    }
+    window.addEventListener('keydown', (e) => {
+      if (e.key === 'ArrowRight' || e.key === ' ') nextSlide();
+      else if (e.key === 'ArrowLeft') prevSlide();
+    });
+  </script>
+</body>
+</html>
