@@ -548,6 +548,31 @@ function botParkBackendPlugin() {
             return res.end(JSON.stringify({ ok: true }));
           }
 
+          if (pathname === '/api/fs/reset' && req.method === 'POST') {
+            const body = await readJsonBody(req);
+            const targetId = String(body.botId || 'all').trim();
+            if (targetId === 'all') {
+              if (fs.existsSync(WORKSPACES_ROOT)) {
+                for (const entry of fs.readdirSync(WORKSPACES_ROOT, { withFileTypes: true })) {
+                  if (entry.isDirectory()) {
+                    const subDir = path.join(WORKSPACES_ROOT, entry.name);
+                    fs.rmSync(subDir, { recursive: true, force: true });
+                    ensureBotWorkspace(entry.name);
+                  }
+                }
+              }
+            } else {
+              const safeId = targetId.replace(/[^a-zA-Z0-9_-]/g, '');
+              const dir = path.join(WORKSPACES_ROOT, safeId);
+              if (fs.existsSync(dir)) {
+                fs.rmSync(dir, { recursive: true, force: true });
+              }
+              ensureBotWorkspace(safeId);
+            }
+            res.setHeader('Content-Type', 'application/json');
+            return res.end(JSON.stringify({ ok: true, botId: targetId }));
+          }
+
           // =========================================================================
           // C. TERMINALE REALE DEL BOT (/api/terminal/exec)
           // =========================================================================

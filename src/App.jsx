@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+﻿import React, { useState, useEffect, useRef, useCallback } from 'react';
 import SidebarLeft from './components/SidebarLeft';
 import ChatCenter from './components/ChatCenter';
 import SidebarRight from './components/SidebarRight';
@@ -1153,6 +1153,17 @@ export default function App() {
         onClose={() => setShowSettingsModal(false)}
         onOpenPairModal={() => setShowPairModal(true)}
         initialTab={settingsInitialTab}
+        geminiApiKey={geminiApiKey}
+        elevenLabsApiKey={elevenLabsApiKey}
+        onSaveApiKeys={(newGemini, newEleven) => {
+          setGeminiApiKey(newGemini);
+          setElevenLabsApiKey(newEleven);
+          if (window.botParkAPI?.saveSecrets) {
+            window.botParkAPI.saveSecrets({ geminiApiKey: newGemini, elevenLabsApiKey: newEleven });
+          }
+        }}
+        activeBotId={activeBot.id}
+        activeBotName={activeBot.name}
         onMemoryImported={(excerpt) =>
           setTvLiveMemorySummary(
             (prev) => `${prev}\n\n[DIARIO MEMORIA_GEMINI.TXT SINCRONIZZATO]:\n${excerpt}`

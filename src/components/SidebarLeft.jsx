@@ -3,13 +3,10 @@ import {
   Search,
   Plus,
   LayoutGrid,
-  Crown,
   Smartphone,
-  MessageSquare,
   Settings,
-  UserPlus,
-  LogOut,
-  ChevronRight,
+  Key,
+  RefreshCw,
   MoreHorizontal,
   Pin,
   PinOff,
@@ -38,7 +35,6 @@ export default function SidebarLeft({
   isMobile = false,
 }) {
   const [showProfileMenu, setShowProfileMenu] = useState(false);
-  const [showPremiumFlyout, setShowPremiumFlyout] = useState(false);
 
   // Stato per il menu Azioni del Bot ("..." o tasto destro) come nell'originale Grok Bot
   const [menuOpenBotId, setMenuOpenBotId] = useState(null);
@@ -55,7 +51,6 @@ export default function SidebarLeft({
     function handleClickOutside(event) {
       if (popoverRef.current && !popoverRef.current.contains(event.target)) {
         setShowProfileMenu(false);
-        setShowPremiumFlyout(false);
       }
       if (botMenuRef.current && !botMenuRef.current.contains(event.target)) {
         setMenuOpenBotId(null);
@@ -443,53 +438,32 @@ export default function SidebarLeft({
           <LayoutGrid size={15} />
         </button>
 
-        {/* POPOVER MENU UFFICIALE */}
+        {/* POPOVER MENU AZIONI REALI */}
         {showProfileMenu && (
           <div className="absolute bottom-12 left-3 w-64 bg-white rounded-2xl shadow-2xl border border-gray-200 p-1.5 z-50 text-xs text-gray-800 animate-in fade-in zoom-in-95">
-            <div
-              onMouseEnter={() => setShowPremiumFlyout(true)}
-              onMouseLeave={() => setShowPremiumFlyout(false)}
-              className="relative"
+            <button
+              onClick={() => {
+                sounds.play('tick');
+                setShowProfileMenu(false);
+                onOpenSettings && onOpenSettings('generali');
+              }}
+              className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl hover:bg-gray-100 transition-colors text-left cursor-pointer"
             >
-              <button
-                onClick={() => {
-                  sounds.play('tick');
-                  setShowProfileMenu(false);
-                  onOpenSettings && onOpenSettings('utilizzo');
-                }}
-                className="w-full flex items-center justify-between px-3 py-2 rounded-xl hover:bg-gray-100 transition-colors"
-              >
-                <div className="flex items-center gap-2 font-medium">
-                  <Crown size={14} className="text-amber-500" />
-                  <span>Premium</span>
-                </div>
-                <div className="flex items-center gap-1 text-[11px] text-gray-400">
-                  <span>0% usato</span>
-                  <ChevronRight size={13} />
-                </div>
-              </button>
+              <Settings size={14} className="text-gray-500" />
+              <span>Impostazioni & Chiavi API</span>
+            </button>
 
-              {showPremiumFlyout && (
-                <div className="absolute left-full bottom-0 ml-1.5 w-48 bg-white rounded-2xl shadow-2xl border border-gray-200 p-3 text-xs space-y-1.5 z-50">
-                  <div className="font-bold text-gray-900">Premium</div>
-                  <div className="text-[11px] text-gray-500">Si azzera tra 4 giorni</div>
-                  <div className="font-semibold text-gray-800">0% usato</div>
-                  <div className="w-full h-1 bg-gray-100 rounded-full overflow-hidden">
-                    <div className="w-0 h-full bg-emerald-500" />
-                  </div>
-                  <button
-                    onClick={() => {
-                      sounds.play('tick');
-                      setShowProfileMenu(false);
-                      onOpenSettings && onOpenSettings('utilizzo');
-                    }}
-                    className="text-[11px] text-emerald-600 font-bold hover:underline block pt-1"
-                  >
-                    Gestisci utilizzo
-                  </button>
-                </div>
-              )}
-            </div>
+            <button
+              onClick={() => {
+                sounds.play('tick');
+                setShowProfileMenu(false);
+                onOpenSettings && onOpenSettings('cassaforte');
+              }}
+              className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl hover:bg-gray-100 transition-colors text-left cursor-pointer"
+            >
+              <Key size={14} className="text-gray-500" />
+              <span>Cassaforte Credenziali</span>
+            </button>
 
             <button
               onClick={() => {
@@ -497,33 +471,10 @@ export default function SidebarLeft({
                 setShowProfileMenu(false);
                 onOpenPairModal && onOpenPairModal();
               }}
-              className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl hover:bg-gray-100 transition-colors text-left"
+              className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl hover:bg-gray-100 transition-colors text-left cursor-pointer"
             >
               <Smartphone size={14} className="text-gray-500" />
-              <span>Scarica Bot Park per dispositivi mobili</span>
-            </button>
-
-            <button
-              onClick={() => {
-                sounds.play('tick');
-                alert('Supporto Bot Park: contatta kitsune Labs a corradogaeta123@gmail.com');
-              }}
-              className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl hover:bg-gray-100 transition-colors text-left"
-            >
-              <MessageSquare size={14} className="text-gray-500" />
-              <span>Supporto</span>
-            </button>
-
-            <button
-              onClick={() => {
-                sounds.play('tick');
-                setShowProfileMenu(false);
-                onOpenSettings && onOpenSettings('generali');
-              }}
-              className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl hover:bg-gray-100 transition-colors text-left"
-            >
-              <Settings size={14} className="text-gray-500" />
-              <span>Impostazioni</span>
+              <span>Connetti Smartphone (QR)</span>
             </button>
 
             <div className="my-1 border-t border-gray-100" />
@@ -531,23 +482,13 @@ export default function SidebarLeft({
             <button
               onClick={() => {
                 sounds.play('tick');
-                alert('Aggiunta di un nuovo profilo account...');
-              }}
-              className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl hover:bg-gray-100 transition-colors text-left text-gray-600"
-            >
-              <UserPlus size={14} />
-              <span>Aggiungi account</span>
-            </button>
-
-            <button
-              onClick={() => {
-                sounds.play('tick');
                 setShowProfileMenu(false);
+                onOpenSettings && onOpenSettings('aggiornamenti');
               }}
-              className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl hover:bg-red-50 text-red-600 transition-colors text-left"
+              className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl hover:bg-gray-100 transition-colors text-left cursor-pointer"
             >
-              <LogOut size={14} />
-              <span>Disconnetti</span>
+              <RefreshCw size={14} className="text-gray-500" />
+              <span>Sistema & Reset Workspace</span>
             </button>
           </div>
         )}
