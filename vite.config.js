@@ -1751,6 +1751,18 @@ function botParkBackendPlugin() {
             );
           }
 
+          if (pathname === '/api/ssl/cert' && req.method === 'GET') {
+            const certPath = path.join(WORKSPACES_ROOT, '_https_cert.pem');
+            if (!fs.existsSync(certPath)) {
+              res.statusCode = 404;
+              return res.end('Certificato SSL LAN non trovato.');
+            }
+            const certBuf = fs.readFileSync(certPath);
+            res.setHeader('Content-Type', 'application/x-x509-ca-cert');
+            res.setHeader('Content-Disposition', 'attachment; filename="BotPark-LAN-Cert.cer"');
+            return res.end(certBuf);
+          }
+
           if (pathname === '/api/mobile/sync' && req.method === 'GET') {
             ensureVaultFile();
             let state = null;
