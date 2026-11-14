@@ -292,6 +292,64 @@ export default function App() {
   const isBridgeInitRef = useRef(false);
   const seenPushIdsRef = useRef(new Set());
   const seenBridgeMsgIdsRef = useRef(new Set());
+  const clientIdRef = useRef('bp_' + Math.random().toString(36).slice(2, 10));
+  const isApplyingRemoteRef = useRef(false);
+  const remoteReleaseTimerRef = useRef(null);
+  const lastSyncAtRef = useRef(0);
+  const pendingDeletedBotIdRef = useRef(null);
+  const pendingCreatedBotIdRef = useRef(null);
+  const pendingClearedBotIdRef = useRef(null);
+
+  const applyRemoteState = useCallback((remoteState, { force = false } = {}) => {
+    if (!remoteState || typeof remoteState !== 'object') return;
+    const incomingTs = Number(remoteState.updatedAt || 0);
+    if (!force && incomingTs > 0 && incomingTs <= lastSyncAtRef.current) return;
+
+    isApplyingRemoteRef.current = true;
+    if (remoteReleaseTimerRef.current) {
+      clearTimeout(remoteReleaseTimerRef.current);
+    }
+
+    if (incomingTs > 0) {
+      lastSyncAtRef.current = Math.max(lastSyncAtRef.current, incomingTs);
+      try {
+        localStorage.setItem('bot_park_last_sync_at', String(lastSyncAtRef.current));
+      } catch {}
+    }
+
+    if (Array.isArray(remoteState.bots) && remoteState.bots.length > 0) {
+      setBots(
+        remoteState.bots.map((b) => {
+          const def = KITSUNE_LABS_BOTS.find((d) => d.id === b.id);
+          return def
+            ? {
+                ...def,
+                ...b,
+                systemInstruction: b.systemInstruction || def.systemInstruction,
+                voiceId: b.voiceId || def.voiceId,
+                color: b.color || def.color,
+              }
+            : b;
+        })
+      );
+    }
+    if (remoteState.botMessages && typeof remoteState.botMessages === 'object') {
+      setBotMessages(remoteState.botMessages);
+    }
+    if (Array.isArray(remoteState.routines) && remoteState.routines.length > 0) {
+      setRoutines(remoteState.routines);
+    }
+    if (remoteState.geminiApiKey) {
+      setGeminiApiKey((prev) => prev || remoteState.geminiApiKey);
+    }
+    if (remoteState.elevenLabsApiKey) {
+      setElevenLabsApiKey((prev) => prev || remoteState.elevenLabsApiKey);
+    }
+
+    remoteReleaseTimerRef.current = setTimeout(() => {
+      isApplyingRemoteRef.current = false;
+    }, 350);
+  }, []);
 
   const triggerPushNotification = useCallback(async (notif) => {
     if (!notif || !notif.id) return;
@@ -333,9 +391,52 @@ export default function App() {
     } catch {}
   }, []);
 
-  // Polling automatico del ponte Antigravity + auto-sincronizzazione memoria_gemini.txt + click da notifica PWA
+  // Connessione Quantum Entanglement Real-Time SSE (/api/sync/stream) + Polling Ponte Antigravity (4s fallback)
   useEffect(() => {
     let active = true;
+    let es = null;
+
+    const handleIncomingBridgeMsg = (msg) => {
+      if (!msg || !msg.id) return;
+      if (msg.direction === 'antigravity_to_bot' && !seenBridgeMsgIdsRef.current.has(msg.id)) {
+        seenBridgeMsgIdsRef.current.add(msg.id);
+        const targetId = msg.targetId || 'samantha';
+        setBotMessages((prev) => ({
+          ...prev,
+          [targetId]: [
+            ...(prev[targetId] || []),
+            {
+              role: 'assistant',
+              content: `⚡ **Messaggio autonomo da Antigravity:**\n\n${msg.message}`,
+              timestamp: `Ponte Antigravity • ${msg.timeLabel || ''}`,
+            },
+          ],
+        }));
+      }
+    };
+
+    try {
+      es = new EventSource(`/api/sync/stream?clientId=${encodeURIComponent(clientIdRef.current)}`);
+      es.addEventListener('entangled_state', (ev) => {
+        if (!active) return;
+        try {
+          const data = JSON.parse(ev.data);
+          if (!data?.state) return;
+          if (data.sourceClientId && data.sourceClientId === clientIdRef.current) return;
+          applyRemoteState(data.state, { force: data.sourceClientId === '__init__' });
+        } catch {}
+      });
+      es.addEventListener('bridge_event', async (ev) => {
+        if (!active) return;
+        try {
+          const data = JSON.parse(ev.data);
+          if (data?.message) handleIncomingBridgeMsg(data.message);
+          if (data?.notification && !seenPushIdsRef.current.has(data.notification.id)) {
+            await triggerPushNotification(data.notification);
+          }
+        } catch {}
+      });
+    } catch {}
 
     const pollBridge = async () => {
       try {
@@ -375,21 +476,7 @@ export default function App() {
 
         const allMsgs = Array.isArray(data.messages) ? data.messages : [];
         for (const msg of allMsgs) {
-          if (msg.direction === 'antigravity_to_bot' && !seenBridgeMsgIdsRef.current.has(msg.id)) {
-            seenBridgeMsgIdsRef.current.add(msg.id);
-            const targetId = msg.targetId || 'samantha';
-            setBotMessages((prev) => ({
-              ...prev,
-              [targetId]: [
-                ...(prev[targetId] || []),
-                {
-                  role: 'assistant',
-                  content: `⚡ **Messaggio autonomo da Antigravity:**\n\n${msg.message}`,
-                  timestamp: `Ponte Antigravity • ${msg.timeLabel || ''}`,
-                },
-              ],
-            }));
-          }
+          handleIncomingBridgeMsg(msg);
           if (Number(msg.timestamp || 0) > maxTs) {
             maxTs = Number(msg.timestamp || 0);
           }
@@ -410,11 +497,23 @@ export default function App() {
             localStorage.setItem('bot_park_last_bridge_msg_ts', String(maxTs));
           } catch {}
         }
+
+        // Fallback Entanglement HTTP nel caso lo stream SSE si riconnetta su Wi-Fi mobile
+        try {
+          const syncRes = await fetch('/api/mobile/sync');
+          const syncData = await syncRes.json();
+          if (active && syncData?.ok && syncData.state) {
+            const diskTs = Number(syncData.state.updatedAt || 0);
+            if (diskTs > lastSyncAtRef.current) {
+              applyRemoteState(syncData.state);
+            }
+          }
+        } catch {}
       } catch {}
     };
 
     pollBridge();
-    const interval = setInterval(pollBridge, 5000);
+    const interval = setInterval(pollBridge, 4000);
 
     const onSwMessage = (ev) => {
       if (ev?.data?.type === 'BOTPARK_PUSH_CLICK' && ev.data.botId) {
@@ -428,12 +527,13 @@ export default function App() {
 
     return () => {
       active = false;
+      if (es) es.close();
       clearInterval(interval);
       if ('serviceWorker' in navigator) {
         navigator.serviceWorker.removeEventListener('message', onSwMessage);
       }
     };
-  }, [triggerPushNotification]);
+  }, [triggerPushNotification, applyRemoteState, navigateMobileScreen]);
 
   // Carica i secret locali da SamanthaSecure + sincronizza TV e memoria condivisa su disco PC
   useEffect(() => {
@@ -472,44 +572,7 @@ export default function App() {
           const syncRes = await fetch('/api/mobile/sync');
           const syncData = await syncRes.json();
           if (syncData?.ok && syncData.state) {
-            const diskUpdatedAt = Number(syncData.state.updatedAt || 0);
-            const shouldHydrateFromDisk =
-              isMobileClient || !hadLocalBots || diskUpdatedAt > localSyncAt;
-
-            if (shouldHydrateFromDisk) {
-              if (Array.isArray(syncData.state.bots) && syncData.state.bots.length > 0) {
-                setBots(
-                  syncData.state.bots.map((b) => {
-                    const def = KITSUNE_LABS_BOTS.find((d) => d.id === b.id);
-                    return def
-                      ? {
-                          ...def,
-                          ...b,
-                          systemInstruction: b.systemInstruction || def.systemInstruction,
-                          voiceId: b.voiceId || def.voiceId,
-                          color: b.color || def.color,
-                        }
-                      : b;
-                  })
-                );
-              }
-              if (syncData.state.botMessages && typeof syncData.state.botMessages === 'object') {
-                setBotMessages(syncData.state.botMessages);
-              }
-              if (Array.isArray(syncData.state.routines) && syncData.state.routines.length > 0) {
-                setRoutines(syncData.state.routines);
-              }
-              if (diskUpdatedAt > 0) {
-                localStorage.setItem('bot_park_last_sync_at', String(diskUpdatedAt));
-              }
-            }
-
-            if (syncData.state.geminiApiKey) {
-              setGeminiApiKey((prev) => prev || syncData.state.geminiApiKey);
-            }
-            if (syncData.state.elevenLabsApiKey) {
-              setElevenLabsApiKey((prev) => prev || syncData.state.elevenLabsApiKey);
-            }
+            applyRemoteState(syncData.state, { force: true });
           }
         } catch (_) {}
 
@@ -521,33 +584,50 @@ export default function App() {
     initApp();
   }, []);
 
-  // Sincronizza automaticamente in background lo stato con il disco del PC (/api/mobile/sync -> _mobile_sync_state.json + memoria_agente.md)
+  // Sincronizza in tempo reale (200ms debounce, zero loop) via Entanglement con disco, Mobile e Electron
   useEffect(() => {
     if (!isSyncedReadyRef.current) return;
+    if (isApplyingRemoteRef.current) return;
     const timer = setTimeout(() => {
+      if (isApplyingRemoteRef.current) return;
+      const deletedBotId = pendingDeletedBotIdRef.current;
+      const createdBotId = pendingCreatedBotIdRef.current;
+      const clearedBotId = pendingClearedBotIdRef.current;
+      pendingDeletedBotIdRef.current = null;
+      pendingCreatedBotIdRef.current = null;
+      pendingClearedBotIdRef.current = null;
+
       fetch('/api/mobile/sync', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          clientId: clientIdRef.current,
           bots,
           botMessages,
           routines,
           geminiApiKey,
           elevenLabsApiKey,
+          ...(deletedBotId ? { deletedBotId } : {}),
+          ...(createdBotId ? { createdBotId } : {}),
+          ...(clearedBotId ? { clearedBotId } : {}),
         }),
       })
         .then((r) => r.json())
         .then((data) => {
           if (data?.updatedAt) {
+            lastSyncAtRef.current = Math.max(lastSyncAtRef.current, Number(data.updatedAt));
             try {
               localStorage.setItem('bot_park_last_sync_at', String(data.updatedAt));
             } catch {}
           }
+          if (data?.state && Array.isArray(data.state.bots) && data.state.bots.length > bots.length) {
+            applyRemoteState(data.state, { force: true });
+          }
         })
         .catch(() => {});
-    }, 900);
+    }, 200);
     return () => clearTimeout(timer);
-  }, [bots, botMessages, routines, geminiApiKey, elevenLabsApiKey]);
+  }, [bots, botMessages, routines, geminiApiKey, elevenLabsApiKey, applyRemoteState]);
 
   // Esegue tag <<<CREATE_BOT>>>, <<<TV_COMMAND>>>, <<<SEND_TO_BOT>>>, <<<WRITE_FILE>>> e <<<REMEMBER>>>
   const executeBotSideEffects = useCallback(
@@ -575,6 +655,7 @@ export default function App() {
               computerStatus: 'Attivo',
             };
 
+            pendingCreatedBotIdRef.current = newBot.id;
             setBots((prev) => {
               if (prev.some((b) => b.id === newBot.id)) return prev;
               return [...prev, newBot];
@@ -956,6 +1037,7 @@ export default function App() {
         },
       ],
     };
+    pendingCreatedBotIdRef.current = botWithDefaults.id;
     setBots((prev) => [...prev, botWithDefaults]);
     setActiveBotId(botWithDefaults.id);
     setBotMessages((prev) => ({
@@ -1405,6 +1487,7 @@ export default function App() {
             setBots((prev) => prev.map((b) => (b.id === updated.id ? updated : b)))
           }
           onDeleteBot={(botIdToDelete) => {
+            pendingDeletedBotIdRef.current = botIdToDelete;
             setBots((prev) => prev.filter((b) => b.id !== botIdToDelete));
             setBotMessages((prev) => {
               const next = { ...prev };
@@ -1416,6 +1499,7 @@ export default function App() {
             }
           }}
           onClearBotChat={(botIdToClear) => {
+            pendingClearedBotIdRef.current = botIdToClear;
             const botObj = bots.find((b) => b.id === botIdToClear);
             setBotMessages((prev) => ({
               ...prev,

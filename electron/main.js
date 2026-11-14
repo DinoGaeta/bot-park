@@ -1,6 +1,8 @@
 import { app, BrowserWindow, ipcMain, Tray, Menu, globalShortcut, nativeImage, session, Notification } from 'electron';
 import path from 'path';
 import fs from 'fs';
+import http from 'http';
+import { spawn } from 'child_process';
 import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -110,27 +112,53 @@ function createWindow() {
     logRenderer(`render-process-gone: ${details.reason}`);
   });
 
-  // Se il dev server Vite non è ancora pronto (avvio a freddo), riprova invece di restare su schermo nero
+  // Avvia automaticamente Vite (porta 5173) in background se non è ancora attivo, così Desktop & Mobile condividono sempre il bus live
+  const ensureLiveViteAndLoad = () => {
+    const req = http.get('http://127.0.0.1:5173/api/network/info', { timeout: 900 }, (res) => {
+      res.resume();
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.loadURL('http://localhost:5173');
+      }
+    });
+    req.on('error', () => {
+      try {
+        const appRoot = path.join(__dirname, '..');
+        const viteProc = spawn('npx', ['vite', '--port', '5173', '--host'], {
+          cwd: appRoot,
+          detached: true,
+          stdio: 'ignore',
+          windowsHide: true,
+          shell: true,
+        });
+        viteProc.unref();
+      } catch {}
+      setTimeout(() => {
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.loadURL('http://localhost:5173');
+        }
+      }, 1500);
+    });
+  };
+
+  // Se il dev server Vite sta avviandosi, riprova su http://localhost:5173; fallback estremo su dist/index.html
   let loadRetries = 0;
   mainWindow.webContents.on('did-fail-load', (_e, errorCode, errorDescription, validatedURL) => {
     logRenderer(`did-fail-load ${errorCode} ${errorDescription} ${validatedURL}`);
-    if (String(validatedURL || '').startsWith('http://localhost:5173') && loadRetries < 30) {
+    if (String(validatedURL || '').startsWith('http://localhost:5173') && loadRetries < 12) {
       loadRetries += 1;
       setTimeout(() => {
-        if (mainWindow) mainWindow.loadURL('http://localhost:5173');
+        if (mainWindow && !mainWindow.isDestroyed()) mainWindow.loadURL('http://localhost:5173');
       }, 1000);
+    } else if (String(validatedURL || '').startsWith('http://localhost:5173')) {
+      const distPath = path.join(__dirname, '../dist/index.html');
+      if (fs.existsSync(distPath) && mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.loadFile(distPath);
+      }
     }
   });
 
-  // Se siamo in modalità dev esplicita e il dev server è richiesto usa localhost, altrimenti carica sempre dist/index.html
-  const distPath = path.join(__dirname, '../dist/index.html');
-  if (process.env.VITE_DEV_SERVER === 'true') {
-    mainWindow.loadURL('http://localhost:5173');
-  } else if (fs.existsSync(distPath)) {
-    mainWindow.loadFile(distPath);
-  } else {
-    mainWindow.loadURL('http://localhost:5173');
-  }
+  // Carica sempre il server live http://localhost:5173 per Quantum Entanglement tra Electron, Browser e Mobile
+  ensureLiveViteAndLoad();
 
   mainWindow.on('closed', () => {
     mainWindow = null;

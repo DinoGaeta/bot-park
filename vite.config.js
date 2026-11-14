@@ -484,6 +484,126 @@ function importExternalBridgeUpdates(state) {
   return state;
 }
 
+const syncStreamClients = new Set();
+
+function broadcastSyncEvent(eventType, data) {
+  const payload = `event: ${eventType}\ndata: ${JSON.stringify(data)}\n\n`;
+  for (const clientRes of [...syncStreamClients]) {
+    try {
+      clientRes.write(payload);
+    } catch {
+      syncStreamClients.delete(clientRes);
+    }
+  }
+}
+
+function readMobileSyncState() {
+  ensureVaultFile();
+  if (!fs.existsSync(MOBILE_SYNC_FILE)) return null;
+  try {
+    return JSON.parse(fs.readFileSync(MOBILE_SYNC_FILE, 'utf8'));
+  } catch {
+    return null;
+  }
+}
+
+function mergeEntangledState(diskState, incomingBody) {
+  const existing = diskState && typeof diskState === 'object' ? diskState : {};
+  const existingDeleted = Array.isArray(existing.deletedBotIds) ? existing.deletedBotIds : [];
+  const deletedSet = new Set(existingDeleted);
+
+  if (incomingBody.deletedBotId) {
+    deletedSet.add(String(incomingBody.deletedBotId));
+  }
+  if (incomingBody.createdBotId) {
+    deletedSet.delete(String(incomingBody.createdBotId));
+  }
+
+  const diskBots = Array.isArray(existing.bots) ? existing.bots : [];
+  const inBots = Array.isArray(incomingBody.bots) ? incomingBody.bots : [];
+  const mergedMap = new Map();
+
+  for (const b of diskBots) {
+    if (b && b.id && !deletedSet.has(b.id)) {
+      mergedMap.set(b.id, b);
+    }
+  }
+
+  for (const b of inBots) {
+    if (!b || !b.id || deletedSet.has(b.id)) continue;
+    const prev = mergedMap.get(b.id);
+    if (!prev) {
+      mergedMap.set(b.id, b);
+    } else {
+      const memMap = new Map();
+      [...(Array.isArray(prev.memories) ? prev.memories : []), ...(Array.isArray(b.memories) ? b.memories : [])]
+        .forEach((m) => {
+          const key = m?.id || m?.text;
+          if (key) memMap.set(key, m);
+        });
+      const skillMap = new Map();
+      [...(Array.isArray(prev.skills) ? prev.skills : []), ...(Array.isArray(b.skills) ? b.skills : [])]
+        .forEach((s) => {
+          const key = s?.id || s?.title;
+          if (key) skillMap.set(key, s);
+        });
+      mergedMap.set(b.id, {
+        ...prev,
+        ...b,
+        memories: Array.from(memMap.values()).slice(-200),
+        skills: Array.from(skillMap.values()),
+      });
+    }
+  }
+
+  const diskMsgs =
+    existing.botMessages && typeof existing.botMessages === 'object' ? existing.botMessages : {};
+  const inMsgs =
+    incomingBody.botMessages && typeof incomingBody.botMessages === 'object'
+      ? incomingBody.botMessages
+      : {};
+  const allBotIds = new Set([...Object.keys(diskMsgs), ...Object.keys(inMsgs)]);
+  const mergedMsgs = {};
+
+  for (const bId of allBotIds) {
+    if (deletedSet.has(bId)) continue;
+    const dArr = Array.isArray(diskMsgs[bId]) ? diskMsgs[bId] : [];
+    const iArr = Array.isArray(inMsgs[bId]) ? inMsgs[bId] : [];
+
+    if (incomingBody.clearedBotId === bId) {
+      mergedMsgs[bId] = iArr;
+    } else if (iArr.length > dArr.length) {
+      mergedMsgs[bId] = iArr;
+    } else if (dArr.length > iArr.length) {
+      mergedMsgs[bId] = dArr;
+    } else if (iArr.length > 0 && dArr.length > 0) {
+      const lastInLen = String(iArr[iArr.length - 1]?.content || '').length;
+      const lastDiskLen = String(dArr[dArr.length - 1]?.content || '').length;
+      mergedMsgs[bId] = lastInLen >= lastDiskLen ? iArr : dArr;
+    } else {
+      mergedMsgs[bId] = iArr.length ? iArr : dArr;
+    }
+  }
+
+  const rawBotsList = Array.from(mergedMap.values());
+  const { cappedBots, cappedMessages } = capAndPersistAgentMemories(rawBotsList, mergedMsgs);
+
+  const routines =
+    Array.isArray(incomingBody.routines) && incomingBody.routines.length > 0
+      ? incomingBody.routines
+      : existing.routines || null;
+
+  return {
+    updatedAt: Date.now(),
+    deletedBotIds: Array.from(deletedSet).slice(-50),
+    bots: cappedBots || rawBotsList,
+    botMessages: cappedMessages || mergedMsgs,
+    routines,
+    geminiApiKey: incomingBody.geminiApiKey || existing.geminiApiKey || '',
+    elevenLabsApiKey: incomingBody.elevenLabsApiKey || existing.elevenLabsApiKey || '',
+  };
+}
+
 function recordBridgeCommunication({
   direction = 'bot_to_antigravity',
   senderId = 'samantha',
@@ -559,7 +679,9 @@ function recordBridgeCommunication({
   }
 
   writeAntigravityBridge(state);
-  return { message: msgObj, notification: notifObj, updatedAt: now };
+  const resultPayload = { message: msgObj, notification: notifObj, updatedAt: now };
+  broadcastSyncEvent('bridge_event', resultPayload);
+  return resultPayload;
 }
 
 function botParkBackendPlugin() {
@@ -1328,8 +1450,41 @@ function botParkBackendPlugin() {
           }
 
           // =========================================================================
-          // G. SINCRONIZZAZIONE MOBILE & QR CODE LAN (/api/mobile/sync & /api/network/info)
+          // G. SINCRONIZZAZIONE ENTANGLEMENT REAL-TIME SSE & QR CODE LAN
           // =========================================================================
+          if (pathname === '/api/sync/stream' && req.method === 'GET') {
+            res.writeHead(200, {
+              'Content-Type': 'text/event-stream',
+              'Cache-Control': 'no-cache, no-transform',
+              Connection: 'keep-alive',
+              'X-Accel-Buffering': 'no',
+            });
+            syncStreamClients.add(res);
+            const initialState = readMobileSyncState();
+            if (initialState) {
+              res.write(
+                `event: entangled_state\ndata: ${JSON.stringify({
+                  updatedAt: initialState.updatedAt || Date.now(),
+                  sourceClientId: '__init__',
+                  state: initialState,
+                })}\n\n`
+              );
+            }
+            const hb = setInterval(() => {
+              try {
+                res.write(`: heartbeat ${Date.now()}\n\n`);
+              } catch {
+                clearInterval(hb);
+                syncStreamClients.delete(res);
+              }
+            }, 15000);
+            req.on('close', () => {
+              clearInterval(hb);
+              syncStreamClients.delete(res);
+            });
+            return;
+          }
+
           if (pathname === '/api/network/info' && req.method === 'GET') {
             const lanIp = getLocalLanIp();
             res.setHeader('Content-Type', 'application/json');
@@ -1366,21 +1521,22 @@ function botParkBackendPlugin() {
           if (pathname === '/api/mobile/sync' && req.method === 'POST') {
             ensureVaultFile();
             const body = await readJsonBody(req);
-            const { cappedBots, cappedMessages } = capAndPersistAgentMemories(
-              body.bots || null,
-              body.botMessages || null
-            );
-            const payload = {
-              updatedAt: Date.now(),
-              bots: cappedBots || body.bots || null,
-              botMessages: cappedMessages || body.botMessages || null,
-              routines: body.routines || null,
-              geminiApiKey: body.geminiApiKey || '',
-              elevenLabsApiKey: body.elevenLabsApiKey || '',
-            };
+            const diskState = readMobileSyncState();
+            const payload = mergeEntangledState(diskState, body || {});
             fs.writeFileSync(MOBILE_SYNC_FILE, JSON.stringify(payload, null, 2), 'utf8');
+            broadcastSyncEvent('entangled_state', {
+              updatedAt: payload.updatedAt,
+              sourceClientId: String(body?.clientId || ''),
+              state: payload,
+            });
             res.setHeader('Content-Type', 'application/json');
-            return res.end(JSON.stringify({ ok: true, updatedAt: payload.updatedAt }));
+            return res.end(
+              JSON.stringify({
+                ok: true,
+                updatedAt: payload.updatedAt,
+                state: payload,
+              })
+            );
           }
 
           // =========================================================================
