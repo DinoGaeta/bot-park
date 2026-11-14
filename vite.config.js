@@ -533,7 +533,17 @@ function mergeEntangledState(diskState, incomingBody) {
     if (!b || !b.id || deletedSet.has(b.id)) continue;
     const prev = mergedMap.get(b.id);
     if (!prev) {
-      mergedMap.set(b.id, b);
+      mergedMap.set(b.id, {
+        ...b,
+        ...(Array.isArray(b.sessions)
+          ? {
+              sessions: b.sessions.map((s) => ({
+                ...s,
+                messages: Array.isArray(s.messages) ? s.messages.slice(-80) : [],
+              })),
+            }
+          : {}),
+      });
     } else {
       const memMap = new Map();
       [...(Array.isArray(prev.memories) ? prev.memories : []), ...(Array.isArray(b.memories) ? b.memories : [])]
@@ -547,11 +557,54 @@ function mergeEntangledState(diskState, incomingBody) {
           const key = s?.id || s?.title;
           if (key) skillMap.set(key, s);
         });
+
+      let mergedSessions = prev.sessions;
+      if (incomingBody.clearedBotId === b.id && Array.isArray(b.sessions)) {
+        mergedSessions = b.sessions.map((s) => ({
+          ...s,
+          messages: Array.isArray(s.messages) ? s.messages.slice(-80) : [],
+        }));
+      } else if (Array.isArray(prev.sessions) || Array.isArray(b.sessions)) {
+        const sessMap = new Map();
+        const mergeSess = (s) => {
+          if (!s || !s.id) return;
+          const cur = sessMap.get(s.id);
+          const sMsgs = Array.isArray(s.messages) ? s.messages.slice(-80) : [];
+          if (!cur) {
+            sessMap.set(s.id, { ...s, messages: sMsgs });
+          } else {
+            const curTs = Number(cur.updatedAt || 0);
+            const sTs = Number(s.updatedAt || 0);
+            const curLen = Array.isArray(cur.messages) ? cur.messages.length : 0;
+            if (sTs > curTs || (sTs === curTs && sMsgs.length >= curLen)) {
+              sessMap.set(s.id, { ...cur, ...s, messages: sMsgs });
+            }
+          }
+        };
+        (Array.isArray(prev.sessions) ? prev.sessions : []).forEach(mergeSess);
+        (Array.isArray(b.sessions) ? b.sessions : []).forEach(mergeSess);
+        mergedSessions = Array.from(sessMap.values());
+      }
+
+      const nextSessionUpdatedAt = Math.max(
+        Number(prev.sessionUpdatedAt || 0),
+        Number(b.sessionUpdatedAt || 0)
+      );
+      const nextActiveSessionId =
+        incomingBody.clearedBotId === b.id ||
+        Number(b.sessionUpdatedAt || 0) >= Number(prev.sessionUpdatedAt || 0) ||
+        !prev.activeSessionId
+          ? b.activeSessionId || prev.activeSessionId
+          : prev.activeSessionId;
+
       mergedMap.set(b.id, {
         ...prev,
         ...b,
         memories: Array.from(memMap.values()).slice(-200),
         skills: Array.from(skillMap.values()),
+        ...(mergedSessions ? { sessions: mergedSessions } : {}),
+        ...(nextActiveSessionId ? { activeSessionId: nextActiveSessionId } : {}),
+        ...(nextSessionUpdatedAt > 0 ? { sessionUpdatedAt: nextSessionUpdatedAt } : {}),
       });
     }
   }
@@ -612,8 +665,11 @@ function recordBridgeCommunication({
   targetId = 'antigravity',
   targetName = 'Antigravity',
   message = '',
+  isolated = false,
+  roomTitle = '',
 }) {
   const cleanMsg = String(message || '').trim();
+  const cleanRoomTitle = String(roomTitle || '').trim();
   const state = readAntigravityBridge();
   const now = Date.now();
   const timeLabel = new Date(now).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
@@ -627,6 +683,8 @@ function recordBridgeCommunication({
     targetId,
     targetName,
     message: cleanMsg,
+    isolated: Boolean(isolated),
+    ...(cleanRoomTitle ? { roomTitle: cleanRoomTitle } : {}),
     timestamp: now,
     timeLabel,
   };
@@ -651,6 +709,8 @@ function recordBridgeCommunication({
     senderName,
     senderColor,
     direction,
+    isolated: Boolean(isolated),
+    ...(cleanRoomTitle ? { roomTitle: cleanRoomTitle } : {}),
     timestamp: now,
     timeLabel,
   };
@@ -660,18 +720,19 @@ function recordBridgeCommunication({
   state.notifications = [...(state.notifications || []), notifObj].slice(-100);
 
   if (direction === 'bot_to_antigravity' && cleanMsg) {
+    const scopeSuffix = `${isolated ? ' [ISOLATED SUBAGENT]' : ''}${cleanRoomTitle ? ` [STANZA: ${cleanRoomTitle}]` : ''}`;
     try {
-      const bridgeBlock = `\n[${formatLocalTimestampIsoLike()}] BOT_PARK (${senderName}) | MSG\n${cleanMsg}\n---\n`;
+      const bridgeBlock = `\n[${formatLocalTimestampIsoLike()}] BOT_PARK (${senderName}) | MSG${scopeSuffix}\n${cleanMsg}\n---\n`;
       fs.appendFileSync(DESKTOP_BRIDGE_PATH, bridgeBlock, 'utf8');
     } catch {}
     try {
-      const diaryEntry = `\n[${formatLocalTimestampIsoLike()}] MESSAGGIO AUTONOMO DA ${String(senderName).toUpperCase()} (BOT PARK) AD ANTIGRAVITY:\n${cleanMsg}\n`;
+      const diaryEntry = `\n[${formatLocalTimestampIsoLike()}] MESSAGGIO AUTONOMO DA ${String(senderName).toUpperCase()} (BOT PARK) AD ANTIGRAVITY${scopeSuffix}:\n${cleanMsg}\n`;
       fs.appendFileSync(MEMORIA_GEMINI_PATH, diaryEntry, 'utf8');
     } catch {}
     try {
       const dir = ensureBotWorkspace(senderId);
       const mdPath = path.join(dir, 'bridge_antigravity.md');
-      const mdLine = `- **[${formatLocalTimestampIsoLike()}] ${senderName} → Antigravity:** ${cleanMsg}\n`;
+      const mdLine = `- **[${formatLocalTimestampIsoLike()}] ${senderName} → Antigravity${scopeSuffix}:** ${cleanMsg}\n`;
       fs.appendFileSync(mdPath, mdLine, 'utf8');
     } catch {}
   } else if (direction === 'antigravity_to_bot' && cleanMsg) {
@@ -1573,6 +1634,8 @@ function botParkBackendPlugin() {
               targetId: body.targetId || 'antigravity',
               targetName: body.targetName || 'Antigravity',
               message: body.message || '',
+              isolated: Boolean(body.isolated),
+              roomTitle: String(body.roomTitle || ''),
             });
             res.setHeader('Content-Type', 'application/json');
             return res.end(

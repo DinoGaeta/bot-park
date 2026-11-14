@@ -23,6 +23,7 @@ import {
   ChevronLeft,
   Home,
   Minus,
+  Layers,
   Square as MaximizeIcon,
 } from 'lucide-react';
 import { marked } from 'marked';
@@ -58,14 +59,44 @@ export default function ChatCenter({
   isMobile = false,
   onMobileBack,
   onGoHome,
+  onCreateSession,
+  onSelectSession,
+  onDeleteSession,
 }) {
   const messagesEndRef = useRef(null);
   const fileInputRef = useRef(null);
   const [canvasContent, setCanvasContent] = useState(null); // { title, content }
   const [copiedCanvas, setCopiedCanvas] = useState(false);
+  const [isCreatingRoom, setIsCreatingRoom] = useState(false);
+  const [newRoomTitle, setNewRoomTitle] = useState('');
 
   // Colore dinamico dell'Agente attivo (Grok Bot original style!)
   const botColor = activeBot?.color || '#00C972';
+
+  useEffect(() => {
+    setIsCreatingRoom(false);
+    setNewRoomTitle('');
+  }, [activeBot?.id]);
+
+  const botSessions =
+    Array.isArray(activeBot?.sessions) && activeBot.sessions.length > 0
+      ? activeBot.sessions
+      : [
+          {
+            id: 'room_main',
+            title: 'Stanza Principale',
+            messages: messages || [],
+          },
+        ];
+  const activeSessionId = activeBot?.activeSessionId || botSessions[0].id;
+
+  const submitNewRoom = (e) => {
+    if (e) e.preventDefault();
+    const clean = newRoomTitle.trim();
+    onCreateSession && onCreateSession(clean || `Stanza ${botSessions.length + 1}`);
+    setNewRoomTitle('');
+    setIsCreatingRoom(false);
+  };
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -229,6 +260,106 @@ export default function ChatCenter({
           )}
         </div>
       </header>
+
+      {/* 1b. Barra Multi-Stanza Sostenibile (Sessioni pulite per Progetto senza rumore) */}
+      <div className="px-3 sm:px-4 py-1.5 bg-[#fafafa] border-b border-gray-200/70 flex items-center gap-1.5 overflow-x-auto no-scrollbar shrink-0">
+        <span
+          className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider text-gray-400 mr-1 shrink-0"
+          title="Stanze di lavoro indipendenti per ridurre il rumore di contesto"
+        >
+          <Layers size={11} />
+          <span>Stanze</span>
+        </span>
+
+        {botSessions.map((sess) => {
+          const isActiveSess = sess.id === activeSessionId;
+          const msgCount = isActiveSess
+            ? (messages || []).length
+            : Array.isArray(sess.messages)
+            ? sess.messages.length
+            : 0;
+          return (
+            <div
+              key={sess.id}
+              onClick={() => {
+                if (!isActiveSess && onSelectSession) {
+                  onSelectSession(sess.id);
+                }
+              }}
+              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold border transition-all shrink-0 cursor-pointer ${
+                isActiveSess
+                  ? 'bg-white text-gray-900 shadow-2xs'
+                  : 'bg-gray-100/80 text-gray-600 border-gray-200/80 hover:bg-white hover:text-gray-900'
+              }`}
+              style={isActiveSess ? { borderColor: botColor } : undefined}
+              title={`Apri stanza: ${sess.title}`}
+            >
+              <span
+                className="w-1.5 h-1.5 rounded-full shrink-0"
+                style={{ backgroundColor: isActiveSess ? botColor : '#9ca3af' }}
+              />
+              <span className="truncate max-w-[130px]">{sess.title}</span>
+              <span className="text-[10px] text-gray-400 font-normal">{msgCount}</span>
+              {botSessions.length > 1 && onDeleteSession && (
+                <button
+                  type="button"
+                  onClick={(ev) => {
+                    ev.stopPropagation();
+                    onDeleteSession(sess.id);
+                  }}
+                  className="ml-0.5 text-gray-400 hover:text-red-500 transition-colors cursor-pointer leading-none"
+                  title="Elimina stanza"
+                >
+                  ×
+                </button>
+              )}
+            </div>
+          );
+        })}
+
+        {isCreatingRoom ? (
+          <form onSubmit={submitNewRoom} className="inline-flex items-center gap-1 shrink-0 ml-1">
+            <input
+              type="text"
+              value={newRoomTitle}
+              onChange={(e) => setNewRoomTitle(e.target.value)}
+              placeholder="Nome stanza..."
+              autoFocus
+              className="w-32 sm:w-40 px-2.5 py-1 rounded-full text-[11px] bg-white border border-gray-300 text-gray-900 focus:outline-none focus:border-gray-900"
+            />
+            <button
+              type="submit"
+              className="px-2.5 py-1 rounded-full text-[11px] font-semibold bg-gray-900 text-white hover:bg-black cursor-pointer"
+            >
+              Crea
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setIsCreatingRoom(false);
+                setNewRoomTitle('');
+              }}
+              className="p-1 text-gray-400 hover:text-gray-700 cursor-pointer"
+              title="Annulla"
+            >
+              <X size={12} />
+            </button>
+          </form>
+        ) : (
+          <button
+            type="button"
+            onClick={() => {
+              sounds.play('tick');
+              setIsCreatingRoom(true);
+            }}
+            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-white border border-dashed border-gray-300 text-gray-700 hover:text-black hover:border-gray-400 transition-colors cursor-pointer shrink-0 ml-0.5"
+            title="Apri una nuova stanza pulita senza rumore"
+          >
+            <Plus size={12} />
+            <span>Nuova Stanza</span>
+          </button>
+        )}
+      </div>
 
       {/* 2. Flusso dei Messaggi */}
       <main className="flex-1 overflow-y-auto p-6 space-y-6">

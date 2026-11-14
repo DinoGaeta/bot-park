@@ -286,6 +286,14 @@ export default function App() {
 
   const activeBot = bots.find((b) => b.id === activeBotId) || bots[0];
   const activeMessages = botMessages[activeBotId] || [];
+  const botsRef = useRef(bots);
+  useEffect(() => {
+    botsRef.current = bots;
+  }, [bots]);
+  const botMessagesRef = useRef(botMessages);
+  useEffect(() => {
+    botMessagesRef.current = botMessages;
+  }, [botMessages]);
   const abortControllerRef = useRef(null);
   const speechRecognitionRef = useRef(null);
   const isSyncedReadyRef = useRef(false);
@@ -349,6 +357,169 @@ export default function App() {
     remoteReleaseTimerRef.current = setTimeout(() => {
       isApplyingRemoteRef.current = false;
     }, 350);
+  }, []);
+
+  // Gestione Multi-Stanza Sostenibile (Sessioni Multiple per Agente)
+  const handleCreateBotSession = useCallback(
+    (botId, rawTitle, initialMessagesOverride = null, archiveThreadOverride = null) => {
+      const targetBot = botsRef.current.find((b) => b.id === botId);
+      if (!targetBot) return null;
+      const now = Date.now();
+      const existingCount = Array.isArray(targetBot.sessions) ? targetBot.sessions.length : 1;
+      const cleanTitle =
+        String(rawTitle || '').trim().slice(0, 48) || `Stanza ${existingCount + 1}`;
+      const newRoomId = `room_${now}_${Math.random().toString(36).slice(2, 6)}`;
+      const currentMsgs = Array.isArray(archiveThreadOverride)
+        ? archiveThreadOverride
+        : botMessagesRef.current[botId] || [];
+
+      const newRoomMessages =
+        Array.isArray(initialMessagesOverride) && initialMessagesOverride.length > 0
+          ? initialMessagesOverride
+          : [
+              {
+                role: 'assistant',
+                content: `Nuova stanza **${cleanTitle}** aperta! Ambiente pulito e senza rumore per **${targetBot.name}**. Da dove partiamo qui?`,
+                timestamp: 'Nuova stanza',
+              },
+            ];
+
+      pendingClearedBotIdRef.current = botId;
+      setBots((prev) =>
+        prev.map((b) => {
+          if (b.id !== botId) return b;
+          const prevSessions =
+            Array.isArray(b.sessions) && b.sessions.length > 0
+              ? b.sessions
+              : [
+                  {
+                    id: 'room_main',
+                    title: 'Stanza Principale',
+                    updatedAt: now - 1,
+                    messages: currentMsgs.slice(-80),
+                  },
+                ];
+          const curActiveId = b.activeSessionId || prevSessions[0].id;
+          const archivedSessions = prevSessions.map((s) =>
+            s.id === curActiveId
+              ? { ...s, messages: currentMsgs.slice(-80), updatedAt: now }
+              : s
+          );
+          const nextSessions = [
+            ...archivedSessions,
+            {
+              id: newRoomId,
+              title: cleanTitle,
+              updatedAt: now,
+              messages: newRoomMessages.slice(-80),
+            },
+          ];
+          return {
+            ...b,
+            sessions: nextSessions,
+            activeSessionId: newRoomId,
+            sessionUpdatedAt: now,
+          };
+        })
+      );
+      setBotMessages((prev) => ({
+        ...prev,
+        [botId]: newRoomMessages,
+      }));
+      sounds.play('success');
+      return newRoomId;
+    },
+    []
+  );
+
+  const handleSelectBotSession = useCallback((botId, targetSessionId) => {
+    const targetBot = botsRef.current.find((b) => b.id === botId);
+    if (!targetBot || !Array.isArray(targetBot.sessions)) return;
+    const curActiveId = targetBot.activeSessionId || targetBot.sessions[0]?.id;
+    if (!targetSessionId || targetSessionId === curActiveId) return;
+    const targetSess = targetBot.sessions.find((s) => s.id === targetSessionId);
+    if (!targetSess) return;
+
+    const now = Date.now();
+    const currentMsgs = botMessagesRef.current[botId] || [];
+    const targetMsgs =
+      Array.isArray(targetSess.messages) && targetSess.messages.length > 0
+        ? targetSess.messages
+        : [
+            {
+              role: 'assistant',
+              content: `Stanza **${targetSess.title}** attiva. Sono **${targetBot.name}**, pronto!`,
+            },
+          ];
+
+    pendingClearedBotIdRef.current = botId;
+    setBots((prev) =>
+      prev.map((b) => {
+        if (b.id !== botId || !Array.isArray(b.sessions)) return b;
+        const activeId = b.activeSessionId || b.sessions[0]?.id;
+        return {
+          ...b,
+          activeSessionId: targetSessionId,
+          sessionUpdatedAt: now,
+          sessions: b.sessions.map((s) =>
+            s.id === activeId
+              ? { ...s, messages: currentMsgs.slice(-80), updatedAt: now }
+              : s
+          ),
+        };
+      })
+    );
+    setBotMessages((prev) => ({
+      ...prev,
+      [botId]: targetMsgs,
+    }));
+    sounds.play('tick');
+  }, []);
+
+  const handleDeleteBotSession = useCallback((botId, sessionIdToDelete) => {
+    const targetBot = botsRef.current.find((b) => b.id === botId);
+    if (!targetBot || !Array.isArray(targetBot.sessions) || targetBot.sessions.length <= 1) return;
+    const remaining = targetBot.sessions.filter((s) => s.id !== sessionIdToDelete);
+    if (remaining.length === 0 || remaining.length === targetBot.sessions.length) return;
+
+    const now = Date.now();
+    const curActiveId = targetBot.activeSessionId || targetBot.sessions[0]?.id;
+    const deletingActive = curActiveId === sessionIdToDelete;
+    const nextActiveSess = deletingActive ? remaining[0] : null;
+    const nextMsgs = nextActiveSess
+      ? Array.isArray(nextActiveSess.messages) && nextActiveSess.messages.length > 0
+        ? nextActiveSess.messages
+        : [{ role: 'assistant', content: `Stanza **${nextActiveSess.title}** attiva.` }]
+      : null;
+
+    pendingClearedBotIdRef.current = botId;
+    setBots((prev) =>
+      prev.map((b) => {
+        if (b.id !== botId || !Array.isArray(b.sessions)) return b;
+        const filtered = b.sessions.filter((s) => s.id !== sessionIdToDelete);
+        if (filtered.length === 0) return b;
+        const activeId = b.activeSessionId || b.sessions[0]?.id;
+        const nextActiveId = activeId === sessionIdToDelete ? filtered[0].id : activeId;
+        const curMsgs = botMessagesRef.current[botId] || [];
+        return {
+          ...b,
+          activeSessionId: nextActiveId,
+          sessionUpdatedAt: now,
+          sessions: filtered.map((s) =>
+            s.id === activeId && activeId !== sessionIdToDelete
+              ? { ...s, messages: curMsgs.slice(-80), updatedAt: now }
+              : s
+          ),
+        };
+      })
+    );
+    if (nextMsgs) {
+      setBotMessages((prev) => ({
+        ...prev,
+        [botId]: nextMsgs,
+      }));
+    }
+    sounds.play('tick');
   }, []);
 
   const triggerPushNotification = useCallback(async (notif) => {
@@ -629,9 +800,53 @@ export default function App() {
     return () => clearTimeout(timer);
   }, [bots, botMessages, routines, geminiApiKey, elevenLabsApiKey, applyRemoteState]);
 
-  // Esegue tag <<<CREATE_BOT>>>, <<<TV_COMMAND>>>, <<<SEND_TO_BOT>>>, <<<WRITE_FILE>>> e <<<REMEMBER>>>
+  // Esegue tag <<<NEW_CHAT_SESSION>>>, <<<CREATE_BOT>>>, <<<TV_COMMAND>>>, <<<SEND_TO_BOT>>>, <<<WRITE_FILE>>>, <<<REMEMBER>>> e <<<SEND_TO_ANTIGRAVITY>>>
   const executeBotSideEffects = useCallback(
-    async (fullAssistantText, senderBotId) => {
+    async (fullAssistantText, senderBotId, archiveThreadOverride = null) => {
+      // 0. Apertura autonoma nuova stanza di lavoro (<<<NEW_CHAT_SESSION: {"title": "..."}>>>)
+      if (fullAssistantText.includes('<<<NEW_CHAT_SESSION:')) {
+        const roomMatch = fullAssistantText.match(
+          /<<<NEW_CHAT_SESSION:\s*(\{[\s\S]*?\}|"[^"]+")\s*>>>/
+        );
+        if (roomMatch && roomMatch[1]) {
+          try {
+            let roomTitle = '';
+            const rawInner = roomMatch[1].trim();
+            if (rawInner.startsWith('{')) {
+              const parsed = JSON.parse(rawInner);
+              roomTitle = String(parsed.title || parsed.name || '').trim();
+            } else {
+              roomTitle = rawInner.replace(/^["']|["']$/g, '').trim();
+            }
+            const targetBot = botsRef.current.find((b) => b.id === senderBotId);
+            const finalTitle =
+              roomTitle || `Stanza ${(targetBot?.sessions?.length || 1) + 1}`;
+            const cleanReplyForNewRoom =
+              fullAssistantText.replace(/<<<[\s\S]*?>>>/g, '').trim() ||
+              `Nuova stanza **${finalTitle}** aperta! Ambiente pulito e senza rumore.`;
+
+            handleCreateBotSession(
+              senderBotId,
+              finalTitle,
+              [
+                {
+                  role: 'assistant',
+                  content: cleanReplyForNewRoom,
+                  timestamp: 'Nuova stanza',
+                  actionChip: {
+                    icon: '🗂️',
+                    text: `Nuova stanza aperta: ${finalTitle}`,
+                  },
+                },
+              ],
+              archiveThreadOverride
+            );
+          } catch (e) {
+            console.error('Errore apertura nuova stanza autonoma:', e);
+          }
+        }
+      }
+
       // 1. Creazione nuovo bot
       if (fullAssistantText.includes('<<<CREATE_BOT:')) {
         const match = fullAssistantText.match(/<<<CREATE_BOT:\s*(\{[\s\S]*?\})\s*>>>/);
@@ -902,10 +1117,14 @@ export default function App() {
         if (agMatch && agMatch[1]) {
           try {
             let agMessage = '';
+            let agIsolated = false;
+            let agRoomTitle = '';
             const rawInner = agMatch[1].trim();
             if (rawInner.startsWith('{')) {
               const parsed = JSON.parse(rawInner);
               agMessage = String(parsed.message || parsed.text || '').trim();
+              agIsolated = Boolean(parsed.isolated);
+              agRoomTitle = String(parsed.roomTitle || '').trim();
             } else {
               agMessage = rawInner.replace(/^["']|["']$/g, '').trim();
             }
@@ -922,6 +1141,8 @@ export default function App() {
                   targetId: 'antigravity',
                   targetName: 'Antigravity',
                   message: agMessage,
+                  isolated: agIsolated,
+                  ...(agRoomTitle ? { roomTitle: agRoomTitle } : {}),
                 }),
               });
               const data = await res.json();
@@ -933,7 +1154,9 @@ export default function App() {
                       ...thread[thread.length - 1],
                       actionChip: {
                         icon: '🛰️',
-                        text: 'Inviato ad Antigravity • Notifica Push inviata',
+                        text: agIsolated
+                          ? 'Inviato ad Antigravity (Subagent Isolato) • Push inviata'
+                          : 'Inviato ad Antigravity • Notifica Push inviata',
                       },
                     };
                   }
@@ -950,7 +1173,7 @@ export default function App() {
         }
       }
     },
-    [bots, botMessages, geminiApiKey, triggerPushNotification]
+    [bots, botMessages, geminiApiKey, triggerPushNotification, handleCreateBotSession]
   );
 
   // Passa a Versione Vergine Pulita
@@ -1061,6 +1284,7 @@ export default function App() {
         .replace(/<<<SEND_TO_BOT:[\s\S]*?>>>/g, '')
         .replace(/<<<WRITE_FILE:[\s\S]*?>>>/g, '')
         .replace(/<<<REMEMBER:[\s\S]*?>>>/g, '')
+        .replace(/<<<NEW_CHAT_SESSION:[\s\S]*?>>>/g, '')
         .replace(/<<<SEND_TO_ANTIGRAVITY:[\s\S]*?>>>/g, '')
         .trim();
 
@@ -1180,12 +1404,14 @@ export default function App() {
           .join('\n\n')}`;
       }
 
-      // Istruzioni operative per salvataggio file, delega @menzioni, auto-apprendimento memoria e ponte Antigravity
+      // Istruzioni operative per salvataggio file, delega @menzioni, auto-apprendimento memoria, stanze pulite e ponte Antigravity
       systemPrompt += `\n\nCOMANDI SPECIALI A TUA DISPOSIZIONE:
 - Se Dion ti chiede di salvare un file/script/documento nella tua Libreria su disco, aggiungi a fine risposta: <<<WRITE_FILE: {"name": "nome_file.md", "content": "contenuto completo"}>>>
 - Se Dion ti insegna una preferenza permanente o ti chiede di ricordare una regola, aggiungi a fine risposta: <<<REMEMBER: "regola o fatto da ricordare">>>
 - Se Dion menziona un altro collega con @NomeBot o ti chiede di delegare a un collega, aggiungi a fine risposta: <<<SEND_TO_BOT: {"targetId": "nome_bot_minuscolo", "message": "compito da svolgere"}>>>
-- Se Dion ti chiede di contattare/avvisare Antigravity o delegargli un'operazione tecnica sul PC, aggiungi a fine risposta: <<<SEND_TO_ANTIGRAVITY: {"message": "messaggio chiaro per Antigravity"}>>>`;
+- Se Dion ti chiede di aprire una nuova chat/stanza pulita per lavorare senza rumore (o iniziate un nuovo progetto separato), aggiungi a fine risposta: <<<NEW_CHAT_SESSION: {"title": "Titolo Nuova Stanza"}>>>
+- Se Dion ti chiede di contattare/avvisare Antigravity o delegargli un'operazione tecnica sul PC, aggiungi a fine risposta: <<<SEND_TO_ANTIGRAVITY: {"message": "messaggio chiaro per Antigravity"}>>>
+- Quando contatti Antigravity per un task complesso che richiede una conversazione subagent isolata senza rumore, usa: <<<SEND_TO_ANTIGRAVITY: {"message": "task dettagliato", "isolated": true}>>>`;
 
       // 1. Se il messaggio contiene un URL http/https, scarichiamo il contenuto live!
       const urlMatch = text.match(/https?:\/\/[^\s)]+/i);
@@ -1229,6 +1455,7 @@ export default function App() {
             .replace(/<<<SEND_TO_BOT:[\s\S]*?>>>/g, '')
             .replace(/<<<WRITE_FILE:[\s\S]*?>>>/g, '')
             .replace(/<<<REMEMBER:[\s\S]*?>>>/g, '')
+            .replace(/<<<NEW_CHAT_SESSION:[\s\S]*?>>>/g, '')
             .replace(/<<<SEND_TO_ANTIGRAVITY:[\s\S]*?>>>/g, '')
             .trim();
           setBotMessages((prev) => {
@@ -1257,7 +1484,7 @@ export default function App() {
         );
       }
 
-      await executeBotSideEffects(fullAssistantText, currentBotId);
+      await executeBotSideEffects(fullAssistantText, currentBotId, newThread);
       sounds.play('chime');
       return cleanFinal;
     } catch (err) {
@@ -1501,14 +1728,30 @@ export default function App() {
           onClearBotChat={(botIdToClear) => {
             pendingClearedBotIdRef.current = botIdToClear;
             const botObj = bots.find((b) => b.id === botIdToClear);
+            const resetMsgs = [
+              {
+                role: 'assistant',
+                content: `Cronologia chat azzerata. Ciao Dion, sono **${botObj?.name || 'il tuo Bot'}**, pronto a ripartire!`,
+              },
+            ];
+            setBots((prev) =>
+              prev.map((b) => {
+                if (b.id !== botIdToClear || !Array.isArray(b.sessions) || b.sessions.length === 0) {
+                  return b;
+                }
+                const curSessId = b.activeSessionId || b.sessions[0].id;
+                return {
+                  ...b,
+                  sessionUpdatedAt: Date.now(),
+                  sessions: b.sessions.map((s) =>
+                    s.id === curSessId ? { ...s, messages: resetMsgs, updatedAt: Date.now() } : s
+                  ),
+                };
+              })
+            );
             setBotMessages((prev) => ({
               ...prev,
-              [botIdToClear]: [
-                {
-                  role: 'assistant',
-                  content: `Cronologia chat azzerata. Ciao Dion, sono **${botObj?.name || 'il tuo Bot'}**, pronto a ripartire!`,
-                },
-              ],
+              [botIdToClear]: resetMsgs,
             }));
           }}
           botStatus={botStatus}
@@ -1558,6 +1801,9 @@ export default function App() {
           isMobile={isMobileView}
           onMobileBack={() => setMobileScreen('list')}
           onGoHome={handleGoHome}
+          onCreateSession={(title) => handleCreateBotSession(activeBot.id, title)}
+          onSelectSession={(sid) => handleSelectBotSession(activeBot.id, sid)}
+          onDeleteSession={(sid) => handleDeleteBotSession(activeBot.id, sid)}
         />
       )}
 
