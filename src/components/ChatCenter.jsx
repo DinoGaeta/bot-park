@@ -21,6 +21,7 @@ import {
   Send,
   ChevronRight,
   ChevronLeft,
+  Home,
   Minus,
   Square as MaximizeIcon,
 } from 'lucide-react';
@@ -56,6 +57,7 @@ export default function ChatCenter({
   onCloseWindow,
   isMobile = false,
   onMobileBack,
+  onGoHome,
 }) {
   const messagesEndRef = useRef(null);
   const fileInputRef = useRef(null);
@@ -94,61 +96,94 @@ export default function ChatCenter({
 
   return (
     <div className="flex-1 h-full flex flex-col bg-white overflow-hidden relative select-none font-['Plus_Jakarta_Sans',sans-serif]">
-      {/* 1. Header Superiore della Chat — Identico all'originale Grok Bot (Image 1 & Image 4) */}
+      {/* 1. Barra di Navigazione Superiore della Chat (sempre visibile su Desktop, Side-Browser & Mobile) */}
       <header
-        className="h-12 flex items-center justify-between px-4 shrink-0 bg-white/95 backdrop-blur-md z-20"
+        className="h-[52px] flex items-center justify-between gap-2 px-3 sm:px-4 border-b border-gray-200/90 shrink-0 bg-white/95 backdrop-blur-md z-30"
         style={{ WebkitAppRegion: 'drag' }}
       >
-        {/* Spazio sinistro: Logo Bot Park ufficiale (e tasto Indietro su Mobile) */}
+        {/* Spazio sinistro: Tasto ← Home + Logo Bot Park */}
         <div
-          className={`${isMobile ? 'w-24' : 'w-36'} flex items-center gap-2`}
+          className="flex items-center gap-2 shrink-0"
           style={{ WebkitAppRegion: 'no-drag' }}
         >
-          {isMobile && (
-            <button
-              onClick={() => {
-                sounds.play('tick');
-                onMobileBack && onMobileBack();
-              }}
-              className="flex items-center gap-0.5 px-2.5 py-1.5 rounded-full bg-[#f3f4f6] hover:bg-[#e5e7eb] text-gray-800 text-xs font-semibold cursor-pointer"
-            >
-              <ChevronLeft size={15} />
-              <span>Bot</span>
-            </button>
+          {isMobile ? (
+            <>
+              <button
+                type="button"
+                onClick={() => {
+                  sounds.play('tick');
+                  if (onMobileBack) onMobileBack();
+                  else if (onGoHome) onGoHome();
+                }}
+                className="flex items-center gap-1 px-2.5 py-1.5 rounded-full bg-[#f3f4f6] hover:bg-[#e5e7eb] border border-gray-200/80 text-gray-900 text-xs font-semibold transition-colors cursor-pointer"
+                title="Torna alla Home (Lista Bot)"
+              >
+                <ChevronLeft size={15} />
+                <Home size={13} />
+                <span>Home</span>
+              </button>
+              <img
+                src="./bot_park_icon.png"
+                alt="Bot Park"
+                title="Bot Park — Jurassic AI Agent"
+                className="hidden sm:block h-6 w-auto object-contain opacity-95 select-none"
+              />
+            </>
+          ) : (
+            <>
+              <button
+                type="button"
+                onClick={() => onGoHome && onGoHome()}
+                className="flex items-center rounded-lg p-0.5 hover:bg-gray-100 transition-colors cursor-pointer"
+                title="Torna alla Home (Samantha)"
+              >
+                <img
+                  src="./bot_park_icon.png"
+                  alt="Bot Park"
+                  className="h-7 w-auto object-contain opacity-95 hover:opacity-100 transition-opacity select-none"
+                />
+              </button>
+              {activeBot?.id !== 'samantha' && (
+                <button
+                  type="button"
+                  onClick={() => onGoHome && onGoHome()}
+                  className="flex items-center gap-1 px-2.5 py-1.5 rounded-full bg-[#f3f4f6] hover:bg-[#e5e7eb] border border-gray-200/80 text-gray-800 text-xs font-semibold transition-colors cursor-pointer"
+                  title="Torna alla Home (Samantha)"
+                >
+                  <ChevronLeft size={14} />
+                  <Home size={13} />
+                  <span>Home</span>
+                </button>
+              )}
+            </>
           )}
-          <img
-            src="./bot_park_icon.png"
-            alt="Bot Park"
-            title="Bot Park — Jurassic AI Agent"
-            className={`${isMobile ? 'h-6' : 'h-7'} w-auto object-contain opacity-95 hover:opacity-100 transition-opacity select-none`}
-          />
         </div>
 
-        {/* Pill Centrale Cliccabile con Avatar + Nome Bot + ">" (Image 4: apre/chiude la Sidebar Destra!) */}
+        {/* Pill Centrale Cliccabile con Avatar + Nome Bot + ">" (apre/chiude la Sidebar Destra!) */}
         <button
           onClick={() => {
             sounds.play('tick');
             onToggleRightSidebar && onToggleRightSidebar();
           }}
           style={{ WebkitAppRegion: 'no-drag' }}
-          className="group flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-white hover:bg-[#f3f4f6] border border-gray-200/80 shadow-xs transition-all cursor-pointer"
+          className="group min-w-0 max-w-[46%] flex items-center gap-2 px-3 sm:px-3.5 py-1.5 rounded-full bg-white hover:bg-[#f3f4f6] border border-gray-200/80 shadow-xs transition-all cursor-pointer"
           title={activeBot?.name}
         >
           <BotAvatar bot={activeBot} size="small" />
-          <span className="text-[13px] font-semibold text-gray-900">
+          <span className="text-[13px] font-semibold text-gray-900 truncate">
             {activeBot?.name}
           </span>
           <ChevronRight
             size={14}
-            className={`text-gray-400 group-hover:text-gray-700 transition-transform duration-200 ${
+            className={`text-gray-400 group-hover:text-gray-700 shrink-0 transition-transform duration-200 ${
               isRightSidebarOpen ? 'rotate-180' : ''
             }`}
           />
         </button>
 
-        {/* Destra: Tasto "Condividi" + i 3 pulsanti Finestra (visibili qui quando la Sidebar Destra è chiusa, come in Image 1) */}
+        {/* Destra: Tasto "Condividi" + i 3 pulsanti Finestra (visibili qui quando la Sidebar Destra è chiusa) */}
         <div
-          className={`flex items-center justify-end gap-2 ${isMobile ? 'w-20' : 'w-36'}`}
+          className="flex items-center justify-end gap-2 shrink-0"
           style={{ WebkitAppRegion: 'no-drag' }}
         >
           <button
@@ -160,7 +195,9 @@ export default function ChatCenter({
               navigator.clipboard?.writeText(summary);
               alert(`Trascrizione della chat con ${activeBot?.name} copiata negli appunti!`);
             }}
-            className="text-xs font-medium text-gray-700 hover:text-black transition-colors px-3 py-1 rounded-full border border-gray-200 hover:bg-gray-100 cursor-pointer"
+            className={`text-xs font-medium text-gray-700 hover:text-black transition-colors ${
+              isMobile ? 'px-2.5 py-1' : 'px-3 py-1'
+            } rounded-full border border-gray-200 hover:bg-gray-100 cursor-pointer`}
           >
             Condividi
           </button>

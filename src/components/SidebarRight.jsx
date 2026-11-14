@@ -5,6 +5,8 @@ import {
   X,
   Clock,
   ChevronRight,
+  ChevronLeft,
+  Home,
   Power,
   Volume2,
   FileText,
@@ -38,6 +40,7 @@ export default function SidebarRight({
   onMaximize,
   onCloseWindow,
   isMobile = false,
+  onGoHome,
 }) {
   const [activeTab, setActiveTab] = useState('attivita'); // 'attivita' | 'identita' | 'libreria'
   const [hideSuggestions, setHideSuggestions] = useState(false);
@@ -154,58 +157,94 @@ export default function SidebarRight({
         isMobile ? 'w-full' : 'w-72'
       } h-full bg-[#fbfcfc] border-l border-[#e5e7eb] flex flex-col select-none shrink-0 text-[#1f2937] font-['Plus_Jakarta_Sans',sans-serif]`}
     >
-      {/* 1. Header identico all'originale Grok Bot (Image 3): Cerchio ( X ) "Chiudi" + separatore "|" + Controlli Finestra (—  □  ×) */}
+      {/* 1. Barra Superiore Dettagli Agente: ← Chat / Home a sinistra + Chiudi ( X ) + Controlli Finestra */}
       <div
-        className="h-12 flex items-center justify-end px-3 gap-2 shrink-0"
+        className="h-[52px] flex items-center justify-between px-3 gap-2 border-b border-gray-200/80 bg-white/95 backdrop-blur-md shrink-0"
         style={{ WebkitAppRegion: 'drag' }}
       >
-        {/* Pulsante circolare ( X ) per chiudere la Sidebar Destra */}
-        <button
-          onClick={() => {
-            sounds.play('tick');
-            onCloseSidebarRight && onCloseSidebarRight();
-          }}
+        <div
+          className="flex items-center gap-1.5"
           style={{ WebkitAppRegion: 'no-drag' }}
-          className="w-8 h-8 rounded-full bg-[#f3f4f6] hover:bg-[#e5e7eb] border border-gray-200/80 flex items-center justify-center text-gray-600 hover:text-gray-900 transition-colors cursor-pointer"
-          title="Chiudi"
         >
-          <X size={15} strokeWidth={2} />
-        </button>
+          <button
+            type="button"
+            onClick={() => {
+              sounds.play('tick');
+              onCloseSidebarRight && onCloseSidebarRight();
+            }}
+            className="flex items-center gap-1 px-2.5 py-1.5 rounded-full bg-[#f3f4f6] hover:bg-[#e5e7eb] border border-gray-200/80 text-gray-800 text-xs font-semibold transition-colors cursor-pointer"
+            title="Torna alla Chat"
+          >
+            <ChevronLeft size={14} />
+            <span>Chat</span>
+          </button>
 
-        {!isMobile && (
-          <>
-            {/* Divisore verticale sottile "|" */}
-            <div className="h-4 w-px bg-gray-200 mx-0.5" />
-
-            {/* I 3 pulsanti di controllo finestra (Minimizza, Ingrandisci, Chiudi App) */}
-            <div
-              className="flex items-center gap-1"
-              style={{ WebkitAppRegion: 'no-drag' }}
+          {isMobile && onGoHome && (
+            <button
+              type="button"
+              onClick={() => {
+                onGoHome();
+              }}
+              className="flex items-center gap-1 px-2.5 py-1.5 rounded-full bg-white hover:bg-[#f3f4f6] border border-gray-200/80 text-gray-800 text-xs font-semibold transition-colors cursor-pointer"
+              title="Torna alla Home (Lista Bot)"
             >
-              <button
-                onClick={onMinimize}
-                className="w-7 h-7 rounded-lg hover:bg-gray-200/80 flex items-center justify-center text-gray-500 hover:text-gray-800 transition-colors cursor-pointer"
-                title="Riduci a icona"
+              <Home size={13} />
+              <span>Home</span>
+            </button>
+          )}
+        </div>
+
+        <div
+          className="flex items-center gap-1.5"
+          style={{ WebkitAppRegion: 'no-drag' }}
+        >
+          {/* Pulsante circolare ( X ) per chiudere la Sidebar Destra */}
+          <button
+            onClick={() => {
+              sounds.play('tick');
+              onCloseSidebarRight && onCloseSidebarRight();
+            }}
+            className="w-8 h-8 rounded-full bg-[#f3f4f6] hover:bg-[#e5e7eb] border border-gray-200/80 flex items-center justify-center text-gray-600 hover:text-gray-900 transition-colors cursor-pointer"
+            title="Chiudi"
+          >
+            <X size={15} strokeWidth={2} />
+          </button>
+
+          {!isMobile && (
+            <>
+              {/* Divisore verticale sottile "|" */}
+              <div className="h-4 w-px bg-gray-200 mx-0.5" />
+
+              {/* I 3 pulsanti di controllo finestra (Minimizza, Ingrandisci, Chiudi App) */}
+              <div
+                className="flex items-center gap-1"
+                style={{ WebkitAppRegion: 'no-drag' }}
               >
-                <Minus size={14} />
-              </button>
-              <button
-                onClick={onMaximize}
-                className="w-7 h-7 rounded-lg hover:bg-gray-200/80 flex items-center justify-center text-gray-500 hover:text-gray-800 transition-colors cursor-pointer"
-                title="Ingrandisci"
-              >
-                <MaximizeIcon size={12} />
-              </button>
-              <button
-                onClick={onCloseWindow}
-                className="w-7 h-7 rounded-lg hover:bg-red-50 flex items-center justify-center text-gray-500 hover:text-red-600 transition-colors cursor-pointer"
-                title="Chiudi applicazione"
-              >
-                <X size={15} />
-              </button>
-            </div>
-          </>
-        )}
+                <button
+                  onClick={onMinimize}
+                  className="w-7 h-7 rounded-lg hover:bg-gray-200/80 flex items-center justify-center text-gray-500 hover:text-gray-800 transition-colors cursor-pointer"
+                  title="Riduci a icona"
+                >
+                  <Minus size={14} />
+                </button>
+                <button
+                  onClick={onMaximize}
+                  className="w-7 h-7 rounded-lg hover:bg-gray-200/80 flex items-center justify-center text-gray-500 hover:text-gray-800 transition-colors cursor-pointer"
+                  title="Ingrandisci"
+                >
+                  <MaximizeIcon size={12} />
+                </button>
+                <button
+                  onClick={onCloseWindow}
+                  className="w-7 h-7 rounded-lg hover:bg-red-50 flex items-center justify-center text-gray-500 hover:text-red-600 transition-colors cursor-pointer"
+                  title="Chiudi applicazione"
+                >
+                  <X size={15} />
+                </button>
+              </div>
+            </>
+          )}
+        </div>
       </div>
 
       {/* 2. Profilo del Bot (Avatar grande, Nome, Tab Attività / Identità / Libreria) */}

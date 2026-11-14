@@ -19,6 +19,10 @@ import { sounds } from './services/soundEffects';
 import { streamGeminiChat } from './services/geminiService';
 import { speakTextWithElevenLabs, stopCurrentSpeech } from './services/elevenLabsService';
 
+const checkIsMobileView = () =>
+  typeof window !== 'undefined' &&
+  (window.innerWidth < 900 || window.location.search.includes('mobile=1'));
+
 const STORAGE_BOTS_KEY = 'botpark_bots_v4';
 const STORAGE_MESSAGES_KEY = 'botpark_messages_v4';
 const STORAGE_ROUTINES_KEY = 'botpark_routines_v1';
@@ -150,15 +154,63 @@ export default function App() {
   const [showCommandPalette, setShowCommandPalette] = useState(false);
   const [isRightSidebarOpen, setIsRightSidebarOpen] = useState(true);
   const [settingsInitialTab, setSettingsInitialTab] = useState('generali');
-  const [isMobileView, setIsMobileView] = useState(
-    () => typeof window !== 'undefined' && window.innerWidth < 768
-  );
+  const [isMobileView, setIsMobileView] = useState(checkIsMobileView);
   const [mobileScreen, setMobileScreen] = useState('list'); // 'list' | 'chat' | 'details'
+  const mobileScreenRef = useRef(mobileScreen);
+  const isMobileViewRef = useRef(isMobileView);
 
   useEffect(() => {
-    const onResize = () => setIsMobileView(window.innerWidth < 768);
+    mobileScreenRef.current = mobileScreen;
+    if (typeof window !== 'undefined') {
+      window.__botParkMobileScreen = mobileScreen;
+    }
+  }, [mobileScreen]);
+
+  useEffect(() => {
+    isMobileViewRef.current = isMobileView;
+  }, [isMobileView]);
+
+  useEffect(() => {
+    const onResize = () => setIsMobileView(checkIsMobileView());
     window.addEventListener('resize', onResize);
     return () => window.removeEventListener('resize', onResize);
+  }, []);
+
+  const navigateMobileScreen = useCallback((nextScreen) => {
+    if (nextScreen === 'chat' || nextScreen === 'details') {
+      try {
+        if (window.location.hash !== `#${nextScreen}`) {
+          window.history.pushState({ mobileScreen: nextScreen }, '', `#${nextScreen}`);
+        }
+      } catch {}
+    }
+    setMobileScreen(nextScreen);
+  }, []);
+
+  const handleGoHome = useCallback(() => {
+    sounds.play('tick');
+    if (isMobileViewRef.current) {
+      setMobileScreen('list');
+    } else {
+      setActiveBotId('samantha');
+    }
+  }, []);
+
+  useEffect(() => {
+    const onBackAction = () => {
+      if (!isMobileViewRef.current) return;
+      if (mobileScreenRef.current === 'details') {
+        setMobileScreen('chat');
+      } else if (mobileScreenRef.current === 'chat') {
+        setMobileScreen('list');
+      }
+    };
+    window.addEventListener('popstate', onBackAction);
+    window.addEventListener('botpark-back', onBackAction);
+    return () => {
+      window.removeEventListener('popstate', onBackAction);
+      window.removeEventListener('botpark-back', onBackAction);
+    };
   }, []);
 
   // Helper universali per i 3 pulsanti finestra (Minimizza, Ingrandisci, Chiudi) sia in Electron che nel Browser
@@ -367,7 +419,7 @@ export default function App() {
     const onSwMessage = (ev) => {
       if (ev?.data?.type === 'BOTPARK_PUSH_CLICK' && ev.data.botId) {
         setActiveBotId(ev.data.botId);
-        if (window.innerWidth < 768) setMobileScreen('chat');
+        if (isMobileViewRef.current) navigateMobileScreen('chat');
       }
     };
     if ('serviceWorker' in navigator) {
@@ -1291,7 +1343,7 @@ export default function App() {
   };
 
   return (
-    <div className="w-screen h-screen flex bg-white overflow-hidden font-['Plus_Jakarta_Sans',sans-serif] relative">
+    <div className="w-screen h-[100dvh] flex bg-white overflow-hidden font-['Plus_Jakarta_Sans',sans-serif] relative">
       {/* Dynamic Island Overlay Notifiche Push per Comunicazioni Autonome */}
       {pushBanners.length > 0 && (
         <div className="fixed top-3 left-1/2 -translate-x-1/2 z-[250] flex flex-col gap-2 w-[92vw] max-w-[440px] pointer-events-none">
@@ -1301,7 +1353,7 @@ export default function App() {
               onClick={() => {
                 if (banner.botId && bots.some((b) => b.id === banner.botId)) {
                   setActiveBotId(banner.botId);
-                  if (isMobileView) setMobileScreen('chat');
+                  if (isMobileView) navigateMobileScreen('chat');
                 }
                 setPushBanners((prev) => prev.filter((item) => item.id !== banner.id));
               }}
@@ -1345,7 +1397,7 @@ export default function App() {
           activeBotId={activeBotId}
           onSelectBot={(id) => {
             setActiveBotId(id);
-            if (isMobileView) setMobileScreen('chat');
+            if (isMobileView) navigateMobileScreen('chat');
           }}
           onAddBot={() => setShowCreateModal(true)}
           onOpenSearch={() => setShowCommandPalette(true)}
@@ -1405,13 +1457,13 @@ export default function App() {
           onSelectOption={(opt) => handleSendMessage(opt)}
           onSelectBot={(id) => {
             setActiveBotId(id);
-            if (isMobileView) setMobileScreen('chat');
+            if (isMobileView) navigateMobileScreen('chat');
           }}
           speakingMessageIndex={speakingMessageIndex}
           isRightSidebarOpen={isMobileView ? mobileScreen === 'details' : isRightSidebarOpen}
           onToggleRightSidebar={() => {
             if (isMobileView) {
-              setMobileScreen((s) => (s === 'details' ? 'chat' : 'details'));
+              navigateMobileScreen(mobileScreen === 'details' ? 'chat' : 'details');
             } else {
               setIsRightSidebarOpen((v) => !v);
             }
@@ -1421,6 +1473,7 @@ export default function App() {
           onCloseWindow={handleWindowClose}
           isMobile={isMobileView}
           onMobileBack={() => setMobileScreen('list')}
+          onGoHome={handleGoHome}
         />
       )}
 
@@ -1437,7 +1490,7 @@ export default function App() {
           onCreateRoutine={() => setShowRoutineModal(true)}
           onOpenTeachModal={() => setShowTeachModal(true)}
           onRunTaskInChat={(taskText) => {
-            if (isMobileView) setMobileScreen('chat');
+            if (isMobileView) navigateMobileScreen('chat');
             handleSendMessage(taskText);
           }}
           elevenLabsApiKey={elevenLabsApiKey}
@@ -1452,6 +1505,7 @@ export default function App() {
           onMaximize={handleWindowMaximize}
           onCloseWindow={handleWindowClose}
           isMobile={isMobileView}
+          onGoHome={handleGoHome}
         />
       )}
 
