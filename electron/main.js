@@ -80,6 +80,31 @@ function createWindow() {
     mainWindow.focus();
   });
 
+  // Log diagnostico del renderer (errori JS / caricamento) per capire eventuali schermate nere
+  const rendererLogPath = path.join(__dirname, '../renderer.log');
+  try { fs.writeFileSync(rendererLogPath, `[${new Date().toISOString()}] Avvio Bot Park\n`); } catch {}
+  const logRenderer = (msg) => {
+    try { fs.appendFileSync(rendererLogPath, `[${new Date().toISOString()}] ${msg}\n`); } catch {}
+  };
+  mainWindow.webContents.on('console-message', (_e, level, message, line, sourceId) => {
+    if (level >= 2) logRenderer(`console(${level}): ${message} @ ${sourceId}:${line}`);
+  });
+  mainWindow.webContents.on('render-process-gone', (_e, details) => {
+    logRenderer(`render-process-gone: ${details.reason}`);
+  });
+
+  // Se il dev server Vite non è ancora pronto (avvio a freddo), riprova invece di restare su schermo nero
+  let loadRetries = 0;
+  mainWindow.webContents.on('did-fail-load', (_e, errorCode, errorDescription, validatedURL) => {
+    logRenderer(`did-fail-load ${errorCode} ${errorDescription} ${validatedURL}`);
+    if (String(validatedURL || '').startsWith('http://localhost:5173') && loadRetries < 30) {
+      loadRetries += 1;
+      setTimeout(() => {
+        if (mainWindow) mainWindow.loadURL('http://localhost:5173');
+      }, 1000);
+    }
+  });
+
   // Se siamo in modalità dev esplicita e il dev server è richiesto usa localhost, altrimenti carica sempre dist/index.html
   const distPath = path.join(__dirname, '../dist/index.html');
   if (process.env.VITE_DEV_SERVER === 'true') {

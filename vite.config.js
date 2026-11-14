@@ -404,7 +404,7 @@ function botParkBackendPlugin() {
               return res.end(JSON.stringify({ ok: true, type: 'keyevent', key: keyName, code }));
             }
 
-            if (type === 'open_app') {
+            if (type === 'open_app' || type === 'launch_app') {
               const appKey = String(body.app || '').toLowerCase();
               const target = TV_APPS[appKey];
               if (!target) {
@@ -418,6 +418,64 @@ function botParkBackendPlugin() {
               ]);
               res.setHeader('Content-Type', 'application/json');
               return res.end(JSON.stringify({ ok: true, type: 'open_app', app: target.label, pkg: target.pkg }));
+            }
+
+            // Ricerca diretta su YouTube TV (deep link accettato da com.google.android.youtube.tv)
+            if (type === 'youtube_search') {
+              const q = String(body.query || body.text || '').trim();
+              if (!q) {
+                res.statusCode = 400;
+                return res.end(JSON.stringify({ ok: false, error: 'Ricerca vuota' }));
+              }
+              await runAdb(['shell', 'input keyevent 224']).catch(() => {});
+              const url = `https://www.youtube.com/results?search_query=${encodeURIComponent(q)}`;
+              await runAdb([
+                'shell',
+                `am start -a android.intent.action.VIEW -d ${escapeAndroidShellSingleQuotes(url)} com.google.android.youtube.tv`,
+              ]);
+              res.setHeader('Content-Type', 'application/json');
+              return res.end(JSON.stringify({ ok: true, type: 'youtube_search', query: q, detail: `Ricerca YouTube: ${q}` }));
+            }
+
+            // Scrive testo nel campo attivo sulla TV (es. barra di ricerca di un'app)
+            if (type === 'type_text') {
+              const t = String(body.text || '').trim();
+              if (!t) {
+                res.statusCode = 400;
+                return res.end(JSON.stringify({ ok: false, error: 'Testo vuoto' }));
+              }
+              // `input text` non accetta spazi: vanno codificati come %s
+              const safe = t.replace(/[^\p{L}\p{N} .,!?@_-]/gu, '').replace(/ /g, '%s');
+              await runAdb(['shell', `input text ${escapeAndroidShellSingleQuotes(safe)}`]);
+              res.setHeader('Content-Type', 'application/json');
+              return res.end(JSON.stringify({ ok: true, type: 'type_text', text: t }));
+            }
+
+            // Imposta il volume a un livello preciso (0-100%) sul canale musica
+            if (type === 'volume_set') {
+              const level = Math.max(0, Math.min(100, Number(body.level)));
+              if (!Number.isFinite(level)) {
+                res.statusCode = 400;
+                return res.end(JSON.stringify({ ok: false, error: 'Livello volume non valido' }));
+              }
+              // Legge il massimo reale dalla TV (su questa TCL è 100). Se non riesce, NON indovina: rifiuta il comando.
+              let max = null;
+              try {
+                const { stdout } = await runAdb([
+                  'shell',
+                  "dumpsys audio > /data/local/tmp/bp_audio.txt 2>/dev/null; grep -A5 'STREAM_MUSIC:' /data/local/tmp/bp_audio.txt | grep -m1 'Max:'; true",
+                ]);
+                const m = stdout.match(/Max:\s*(\d+)/);
+                if (m) max = Number(m[1]);
+              } catch {}
+              if (!max) {
+                res.statusCode = 503;
+                return res.end(JSON.stringify({ ok: false, error: 'Impossibile leggere il volume massimo della TV: comando annullato per sicurezza' }));
+              }
+              const idx = Math.round((level / 100) * max);
+              await runAdb(['shell', `cmd media_session volume --stream 3 --set ${idx}`]);
+              res.setHeader('Content-Type', 'application/json');
+              return res.end(JSON.stringify({ ok: true, type: 'volume_set', level, index: idx, max }));
             }
 
             res.statusCode = 400;

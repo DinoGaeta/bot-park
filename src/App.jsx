@@ -655,6 +655,7 @@ export default function App() {
   const handleVoiceTurnCompleted = useCallback(
     (userTranscript, rawBotReply) => {
       const cleanDisplay = String(rawBotReply || '')
+        .replace(/<<<HANG_UP>>>/g, '')
         .replace(/<<<CREATE_BOT:[\s\S]*?>>>/g, '')
         .replace(/<<<TV_COMMAND:[\s\S]*?>>>/g, '')
         .replace(/<<<SEND_TO_BOT:[\s\S]*?>>>/g, '')

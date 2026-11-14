@@ -1,4 +1,11 @@
 // Motore di Streaming & Audio Multimodale Gemini con Multi-Model Failover Automatico (Zero 503 / Zero 404)
+import { TV_COMMANDS_RULE } from '../data/tvCommands.js';
+
+// Aggiunge l'elenco unico dei comandi TV a qualunque istruzione di sistema (una sola volta)
+const withTvCommands = (text) =>
+  String(text || '').includes('CONTROLLO SMART TV DEL SALOTTO (Android TV')
+    ? String(text || '')
+    : `${text || ''}\n${TV_COMMANDS_RULE}`;
 
 export const PERSONAS = {
   samantha: {
@@ -57,7 +64,7 @@ export async function streamGeminiChat({
   }
 
   const persona = PERSONAS[personaId] || PERSONAS.samantha;
-  const instructionText = customSystemInstruction || persona.systemInstruction;
+  const instructionText = withTvCommands(customSystemInstruction || persona.systemInstruction);
 
   const contents = messages
     .filter((m) => m.content || (m.images && m.images.length > 0))
@@ -210,13 +217,13 @@ NON SEI SAMANTHA! Non dire MAI di essere Samantha. Samantha è la tua collega Ca
     (PERSONAS[personaId] ? PERSONAS[personaId].systemInstruction : '') ||
     `Sei ${resolvedName} (${botSubtitle}), agente specializzato di Dion in kitsune Labs.`;
 
-  const voiceSystemPrompt = `${identityHeader}${baseInstruction}
+  const voiceSystemPrompt = `${identityHeader}${withTvCommands(baseInstruction)}
 
 MODALITÀ CHIAMATA VOCALE IN TEMPO REALE CON DION (TU SEI ${resolvedName.toUpperCase()}):
 Stai parlando a voce con Dion in una telefonata/chat vocale live dentro Bot Park nei panni di ${resolvedName}.
 - Rispondi in modo naturale, caloroso, conciso e fluido da ascoltare a voce (2-3 frasi al massimo, senza elenchi puntati o blocchi di codice), mantenendo al 100% la personalità di ${resolvedName}.
 - Se ricevi un file audio da Dion, ascoltalo attentamente.
-- GESTIONE CHIUSURA CHIAMATA: Se Dion ti dice di chiudere la chiamata, staccare, riattaccare, salutare per chiudere o che per ora è a posto (es. "stacca", "chiudi la chiamata", "riattacca", "termina", "basta così", "a dopo", "ci sentiamo più tardi"):
+- GESTIONE CHIUSURA CHIAMATA: Se Dion ti dice di chiudere la chiamata, staccare, riattaccare, salutare per chiudere o che per ora è a posto (es. "stacca", "ok stacca", "chiudi la chiamata", "riattacca", "riaggancia", "metti giù la chiamata", "butta giù", "termina", "basta così", "a dopo", "ci sentiamo più tardi"). NON chiudere la chiamata se Dion chiede di chiudere un'app o altro (es. "chiudi YouTube"):
   Rispondi brevemente e calorosamente con una sola frase di saluto (es. "A presto Dion! Buona continuazione.", "Certamente, a più tardi!") e includi imperativamente in fondo alla risposta il comando <<<HANG_UP>>> per riagganciare la telefonata.
 - Rispondi ESCLUSIVAMENTE con un oggetto JSON valido con questa struttura esatta:
 {

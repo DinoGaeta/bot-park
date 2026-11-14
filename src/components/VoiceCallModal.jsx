@@ -284,7 +284,7 @@ export default function VoiceCallModal({
         const rawReply = reply || '';
         const isHangUp =
           /<<<HANG_UP>>>/i.test(rawReply) ||
-          /\b(stacca|chiudi|riattacca|termina|basta così|ci sentiamo dopo|a presto|chiudere la chiamata|chiudi la chiamata|stacca la chiamata)\b/i.test(
+          /\b(riattacca|riaggancia|butta gi[uù]|metti gi[uù]( la chiamata)?|(ok |okay )?stacca( la chiamata)?|chiudi la chiamata|chiudere la chiamata|termina la chiamata|basta così)\b/i.test(
             cleanTranscript
           );
 
@@ -301,7 +301,8 @@ export default function VoiceCallModal({
         setCallState('speaking');
 
         if (onVoiceTurnCompletedRef.current) {
-          onVoiceTurnCompletedRef.current(cleanTranscript, speechToPlay);
+          // Passiamo la risposta GREZZA (con i tag) così App.jsx può eseguire davvero TV_COMMAND, WRITE_FILE, ecc.
+          onVoiceTurnCompletedRef.current(cleanTranscript, rawReply || speechToPlay);
         }
 
         const voiceId = currentBot?.voiceId || 'CiwzbDpaN3pQXjTgx3ML';
