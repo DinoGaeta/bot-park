@@ -6,11 +6,12 @@ import {
   MicOff,
   Tv,
   Send,
+  Lock,
 } from 'lucide-react';
 import BotAvatar from './BotAvatar';
 import { sounds } from '../services/soundEffects';
 import { sendVoiceAudioToGemini } from '../services/geminiService';
-import { speakTextWithElevenLabs, stopCurrentSpeech } from '../services/elevenLabsService';
+import { speakTextWithElevenLabs, stopCurrentSpeech, unlockAudioForMobile } from '../services/elevenLabsService';
 
 export default function VoiceCallModal({
   isOpen,
@@ -28,6 +29,8 @@ export default function VoiceCallModal({
   const [speakOnTvToo, setSpeakOnTvToo] = useState(false);
   const [callDuration, setCallDuration] = useState(0);
   const [errorBanner, setErrorBanner] = useState('');
+  const [isHybridFallbackMode, setIsHybridFallbackMode] = useState(false);
+  const [hybridInputText, setHybridInputText] = useState('');
 
   // Ref sempre aggiornati per evitare qualsiasi closure obsoleta (così Spielberg è sempre Spielberg!)
   const activeBotRef = useRef(activeBot);
@@ -36,6 +39,8 @@ export default function VoiceCallModal({
   const geminiApiKeyRef = useRef(geminiApiKey);
   const elevenLabsApiKeyRef = useRef(elevenLabsApiKey);
   const onVoiceTurnCompletedRef = useRef(onVoiceTurnCompleted);
+  const audioCaptureInputRef = useRef(null);
+  const processCapturedVoiceRef = useRef(null);
 
   useEffect(() => {
     activeBotRef.current = activeBot;
@@ -172,6 +177,7 @@ export default function VoiceCallModal({
   // Monitora il microfono mentre il Bot parla per Barge-In (se Dion inizia a parlare, il Bot si zittisce subito e ascolta!)
   const startBargeInMonitor = useCallback(async () => {
     stopBargeInMonitor();
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return;
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
@@ -247,7 +253,8 @@ export default function VoiceCallModal({
     async (audioBlob, fallbackText) => {
       if (!isMountedRef.current) return;
 
-      if (audioBlob.size < 1400 && !fallbackText) {
+      const cleanFallback = (fallbackText || '').trim();
+      if ((!audioBlob || audioBlob.size < 1400) && !cleanFallback) {
         startListeningTurn();
         return;
       }
@@ -258,7 +265,7 @@ export default function VoiceCallModal({
       const currentBot = activeBotRef.current;
 
       try {
-        const base64Audio = await blobToBase64(audioBlob);
+        const base64Audio = audioBlob ? await blobToBase64(audioBlob) : '';
         const botMemoriesText =
           Array.isArray(currentBot?.memories) && currentBot.memories.length > 0
             ? `\n\n[MEMORIE PERMANENTEMENTE SALVATE SU DION E SUL PROGETTO (${currentBot.memories.length})]:\n` +
@@ -273,8 +280,8 @@ export default function VoiceCallModal({
         const { transcript, reply } = await sendVoiceAudioToGemini({
           apiKey: geminiApiKeyRef.current,
           audioBase64: base64Audio,
-          mimeType: audioBlob.type || 'audio/webm',
-          spokenTextFallback: fallbackText,
+          mimeType: audioBlob?.type || 'audio/webm',
+          spokenTextFallback: cleanFallback,
           messages: messagesRef.current,
           personaId: currentBot?.id || 'samantha',
           botName: currentBot?.name || 'Samantha',
@@ -284,7 +291,7 @@ export default function VoiceCallModal({
 
         if (!isMountedRef.current) return;
 
-        const cleanTranscript = (transcript || fallbackText || '').trim();
+        const cleanTranscript = (transcript || cleanFallback || '').trim();
         if (!cleanTranscript || cleanTranscript === '...') {
           startListeningTurn();
           return;
@@ -307,6 +314,7 @@ export default function VoiceCallModal({
           .replace(/<<<WRITE_FILE:[\s\S]*?>>>/g, '')
           .replace(/<<<REMEMBER:[\s\S]*?>>>/g, '')
           .replace(/<<<SEND_TO_ANTIGRAVITY:[\s\S]*?>>>/g, '')
+          .replace(/<<<NEW_CHAT_SESSION:[\s\S]*?>>>/g, '')
           .trim();
 
         const speechToPlay = cleanSpokenReply || (isHangUp ? 'A presto Dion, ci sentiamo dopo!' : 'Ho capito.');
@@ -423,6 +431,24 @@ export default function VoiceCallModal({
     [startBargeInMonitor, stopBargeInMonitor]
   );
 
+  useEffect(() => {
+    processCapturedVoiceRef.current = processCapturedVoice;
+  }, [processCapturedVoice]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const onNativeSpeech = (ev) => {
+      const spoken = String(ev?.detail?.text || '').trim();
+      if (spoken && isMountedRef.current && processCapturedVoiceRef.current) {
+        unlockAudioForMobile();
+        setLiveTranscript(spoken);
+        processCapturedVoiceRef.current(null, spoken);
+      }
+    };
+    window.addEventListener('botpark-native-speech', onNativeSpeech);
+    return () => window.removeEventListener('botpark-native-speech', onNativeSpeech);
+  }, [isOpen]);
+
   // Avvia l'ascolto dal microfono con rilevamento automatico del parlato (VAD) + MediaRecorder per Gemini Audio API
   const startListeningTurn = useCallback(async () => {
     if (!isMountedRef.current) return;
@@ -434,7 +460,19 @@ export default function VoiceCallModal({
     silenceStartRef.current = null;
     audioChunksRef.current = [];
 
+    const hasLiveMic =
+      typeof navigator !== 'undefined' &&
+      !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia) &&
+      typeof window.MediaRecorder !== 'undefined';
+
+    if (!hasLiveMic) {
+      setIsHybridFallbackMode(true);
+      setCallState('idle');
+      return;
+    }
+
     try {
+      setIsHybridFallbackMode(false);
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
           echoCancellation: true,
@@ -535,7 +573,12 @@ export default function VoiceCallModal({
 
       rafRef.current = requestAnimationFrame(checkVolume);
     } catch (err) {
-      setErrorBanner(`Accesso al microfono non riuscito: ${err.message}`);
+      setIsHybridFallbackMode(true);
+      if (window.isSecureContext) {
+        setErrorBanner(`Accesso al microfono non riuscito: ${err.message}`);
+      } else {
+        setErrorBanner('');
+      }
       setCallState('idle');
     }
   }, [finishListeningAndSend, processCapturedVoice, stopBargeInMonitor]);
@@ -543,7 +586,10 @@ export default function VoiceCallModal({
   useEffect(() => {
     if (isOpen) {
       isMountedRef.current = true;
+      unlockAudioForMobile();
       sounds.play('open');
+      setHybridInputText('');
+      setErrorBanner('');
       setLiveTranscript('');
       setBotReplyText(
         `Ciao Dion, sono ${activeBot?.name || 'Samantha'} (${activeBot?.subtitle || 'Agente'}). Ti ascolto, parlami pure!`
@@ -567,7 +613,36 @@ export default function VoiceCallModal({
 
   const botColor = activeBot?.color || '#FF309B';
 
+  const handleSendHybridText = (e) => {
+    if (e) e.preventDefault();
+    const clean = hybridInputText.trim();
+    if (!clean || callState === 'thinking') return;
+    unlockAudioForMobile();
+    setHybridInputText('');
+    setLiveTranscript(clean);
+    processCapturedVoice(null, clean);
+  };
+
+  const handleHybridVoiceCapture = () => {
+    unlockAudioForMobile();
+    sounds.play('tick');
+    if (window.BotParkNative && typeof window.BotParkNative.startVoiceRecognition === 'function') {
+      window.BotParkNative.startVoiceRecognition();
+      return;
+    }
+    audioCaptureInputRef.current?.click();
+  };
+
+  const handleAudioFileSelected = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file || !isMountedRef.current) return;
+    unlockAudioForMobile();
+    await processCapturedVoice(file, '');
+  };
+
   const handleToggleMuteOrSend = () => {
+    unlockAudioForMobile();
     sounds.play('tick');
     if (callState === 'listening') {
       if (hasSpokenInTurnRef.current || liveTranscript) {
@@ -579,6 +654,8 @@ export default function VoiceCallModal({
     } else if (callState === 'speaking') {
       // Barge-In immediato: zittisce il bot (PC + TV) e ascolta subito Dion!
       interruptBotSpeechAndListen();
+    } else if (isHybridFallbackMode) {
+      handleHybridVoiceCapture();
     } else {
       startListeningTurn();
     }
@@ -708,6 +785,8 @@ export default function VoiceCallModal({
               ? speakOnTvToo
                 ? `Sta parlando sulla Smart TV (inizia a parlare per interromperlo)...`
                 : `Sta parlando con voce ${activeBot?.voice?.split(' ')[0] || 'ElevenLabs'} (parla per interrompere)...`
+              : isHybridFallbackMode
+              ? 'Modalità Ibrida Mobile • Dettatura o Audio Rapido'
               : 'Microfono in pausa'}
           </p>
 
@@ -722,6 +801,74 @@ export default function VoiceCallModal({
               {botReplyText || `Parla al microfono per dialogare a voce con ${activeBot?.name}`}
             </div>
           </div>
+
+          <input
+            ref={audioCaptureInputRef}
+            type="file"
+            accept="audio/*"
+            capture="microphone"
+            className="hidden"
+            onChange={handleAudioFileSelected}
+          />
+
+          {isHybridFallbackMode && (
+            <div className="w-full mt-3 flex flex-col gap-2 z-10">
+              <form
+                onSubmit={handleSendHybridText}
+                className="w-full flex items-center gap-2 bg-white/8 border border-white/15 rounded-2xl px-3 py-2 focus-within:border-white/35 transition-colors"
+              >
+                <input
+                  type="text"
+                  value={hybridInputText}
+                  onChange={(e) => setHybridInputText(e.target.value)}
+                  onFocus={() => unlockAudioForMobile()}
+                  placeholder="Tocca qui e premi 🎙️ sulla tastiera iPhone per parlare..."
+                  className="flex-1 bg-transparent text-xs text-white placeholder-gray-400 outline-none select-text"
+                />
+                <button
+                  type="submit"
+                  disabled={!hybridInputText.trim() || callState === 'thinking'}
+                  className="px-3 py-1.5 rounded-xl text-[11px] font-semibold text-white disabled:opacity-40 transition-all cursor-pointer flex items-center gap-1"
+                  style={{ backgroundColor: botColor }}
+                >
+                  <Send size={13} />
+                  <span>Invia</span>
+                </button>
+              </form>
+
+              <div className="flex flex-wrap items-center justify-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleHybridVoiceCapture}
+                  disabled={callState === 'thinking'}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/10 hover:bg-white/15 border border-white/15 text-[11px] font-medium text-white transition-all cursor-pointer disabled:opacity-40"
+                >
+                  <Mic size={13} />
+                  <span>
+                    {typeof window !== 'undefined' && window.BotParkNative?.startVoiceRecognition
+                      ? 'Parla con Microfono Android'
+                      : 'Registra Clip Audio'}
+                  </span>
+                </button>
+
+                {typeof window !== 'undefined' &&
+                  window.location.protocol === 'http:' &&
+                  !['localhost', '127.0.0.1'].includes(window.location.hostname) && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        unlockAudioForMobile();
+                        window.location.href = `https://${window.location.hostname}:5443/${window.location.search}`;
+                      }}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-400/35 text-[11px] font-medium text-emerald-200 transition-all cursor-pointer"
+                    >
+                      <Lock size={12} />
+                      <span>Passa a HTTPS (:5443) per Mic Live Continuo</span>
+                    </button>
+                  )}
+              </div>
+            </div>
+          )}
 
           {errorBanner && (
             <div className="w-full mt-3 px-3 py-2 rounded-xl bg-red-500/20 border border-red-500/30 text-[11px] text-red-200 z-10">
@@ -741,6 +888,8 @@ export default function VoiceCallModal({
                     ? botColor
                     : callState === 'speaking'
                     ? '#F59E0B'
+                    : isHybridFallbackMode
+                    ? botColor
                     : 'rgba(255,255,255,0.12)',
               }}
               title={
@@ -748,6 +897,8 @@ export default function VoiceCallModal({
                   ? 'Clicca per inviare subito la frase o mettere in muto'
                   : callState === 'speaking'
                   ? 'Interrompi subito e parla'
+                  : isHybridFallbackMode
+                  ? 'Avvia registrazione vocale rapida'
                   : 'Riattiva microfono'
               }
             >

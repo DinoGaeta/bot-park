@@ -1,29 +1,61 @@
-﻿// Servizio TTS ElevenLabs + Fallback Web Speech API per Bot Park
+// Servizio TTS ElevenLabs per Bot Park / Samantha
+// Utilizza la chiave sicura caricata da %LOCALAPPDATA%\SamanthaSecure\secrets.json
 
 export const ELEVEN_LABS_VOICES = [
-  { id: '21m00Tcm4TlvDq8ikWAM', name: 'Rachel (Default)', desc: 'Voce naturale, chiara e bilanciata' },
+  { id: 'CiwzbDpaN3pQXjTgx3ML', name: 'Samantha (Aida)', desc: 'Voce originale profonda, setosa e intima' },
+  { id: 'SKEVNjRKCergbPKum64u', name: 'Samantha (Cornelia)', desc: 'Calma, rilassata e calorosa' },
   { id: 'EXAVITQu4vr4xnSDxMaL', name: 'Sarah', desc: 'Matura, rassicurante e professionale' },
-  { id: 'pFZP5JQG7iQjIQuC4Bku', name: 'Lily', desc: 'Brillante ed espressiva' },
+  { id: 'pFZP5JQG7iQjIQuC4Bku', name: 'Lily', desc: 'Attrice vellutata e brillante' },
   { id: 'cgSgspJ2msm6clMCkdW9', name: 'Jessica', desc: 'Solare, energica e calorosa' },
-  { id: 'nPczCjzI2devNBz1zQrb', name: 'Brian', desc: 'Timbro profondo e autorevole' },
-  { id: 'JBFqnCBsd6RMkjVDRZzb', name: 'George', desc: 'Narratore caldo e coinvolgente' },
-  { id: 'TX3LPaxmHKxFdv7VOQHJ', name: 'Liam', desc: 'Creatore dinamico e moderno' },
-  { id: 'Cosmo', name: 'Cosmo (Sintesi Locale)', desc: 'Voce sintetica rapida del sistema' },
+  { id: 'hpp4J3VqNfWAUOO0d1Us', name: 'Bella', desc: 'Professionale e cordiale' },
+  { id: 'nPczCjzI2devNBz1zQrb', name: 'Brian (Rex/Bastione)', desc: 'Timbro profondo e autorevole' },
+  { id: 'JBFqnCBsd6RMkjVDRZzb', name: 'George (Italo Sceneggiatore)', desc: 'Narratore caldo e coinvolgente' },
+  { id: 'TX3LPaxmHKxFdv7VOQHJ', name: 'Liam (Steve/Spielberg)', desc: 'Creatore dinamico e moderno' },
+  { id: 'Cosmo', name: 'Cosmo (Sintesi Locale)', desc: 'Voce sintetica rapida predefinita' },
 ];
 
 let currentAudio = null;
+let sharedAudio = typeof Audio !== 'undefined' ? new Audio() : null;
+let currentAudioUrl = null;
+
+export function unlockAudioForMobile() {
+  if (!sharedAudio) return;
+  try {
+    sharedAudio.playsInline = true;
+    sharedAudio.setAttribute?.('playsinline', 'true');
+    sharedAudio.src =
+      'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA';
+    sharedAudio.volume = 0.01;
+    const p = sharedAudio.play();
+    if (p && typeof p.then === 'function') {
+      p.then(() => {
+        sharedAudio.pause();
+        sharedAudio.currentTime = 0;
+        sharedAudio.volume = 1.0;
+      }).catch(() => {});
+    }
+  } catch {}
+}
 
 export async function stopCurrentSpeech() {
   if (currentAudio) {
-    currentAudio.pause();
-    currentAudio.currentTime = 0;
+    try {
+      currentAudio.pause();
+      currentAudio.currentTime = 0;
+    } catch {}
     currentAudio = null;
+  }
+  if (currentAudioUrl) {
+    try {
+      URL.revokeObjectURL(currentAudioUrl);
+    } catch {}
+    currentAudioUrl = null;
   }
 }
 
 export async function speakTextWithElevenLabs({
   text,
-  voiceId = '21m00Tcm4TlvDq8ikWAM',
+  voiceId = 'CiwzbDpaN3pQXjTgx3ML',
   apiKey,
   speed = 1.0,
   onStart,
@@ -32,13 +64,14 @@ export async function speakTextWithElevenLabs({
 }) {
   if (!text || !text.trim()) return;
 
+  // Se è Cosmo o manca la chiave API, usa fallback SpeechSynthesis del browser
   if (voiceId === 'Cosmo' || !apiKey) {
     if ('speechSynthesis' in window) {
       window.speechSynthesis.cancel();
       const cleanText = text.replace(/[*#_`~>]/g, '').trim();
       const utterance = new SpeechSynthesisUtterance(cleanText);
       utterance.lang = 'it-IT';
-      utterance.rate = typeof speed === 'number' ? speed : parseFloat(speed) || 1.1;
+      utterance.rate = typeof speed === 'number' ? speed : parseFloat(speed) || 1.15;
       utterance.onstart = () => onStart && onStart();
       utterance.onend = () => onEnd && onEnd();
       utterance.onerror = () => onEnd && onEnd();
@@ -50,6 +83,7 @@ export async function speakTextWithElevenLabs({
   try {
     await stopCurrentSpeech();
 
+    // Rimuovi caratteri di formattazione markdown per sintesi pulita
     const cleanText = text
       .replace(/```[\s\S]*?```/g, 'Blocco di codice omesso.')
       .replace(/[*#_`~>[\]()]/g, '')
@@ -64,7 +98,7 @@ export async function speakTextWithElevenLabs({
       headers: {
         'xi-api-key': apiKey,
         'Content-Type': 'application/json',
-        Accept: 'audio/mpeg',
+        'Accept': 'audio/mpeg',
       },
       body: JSON.stringify({
         text: cleanText,
@@ -79,6 +113,9 @@ export async function speakTextWithElevenLabs({
     });
 
     if (!response.ok) {
+      const errText = await response.text();
+      console.warn(`ElevenLabs error ${response.status}:`, errText);
+      // Fallback rapido a SpeechSynthesis locale
       if ('speechSynthesis' in window) {
         const fallbackUtterance = new SpeechSynthesisUtterance(cleanText);
         fallbackUtterance.lang = 'it-IT';
@@ -92,18 +129,33 @@ export async function speakTextWithElevenLabs({
 
     const audioBlob = await response.blob();
     const audioUrl = URL.createObjectURL(audioBlob);
+    currentAudioUrl = audioUrl;
 
-    const audio = new Audio(audioUrl);
+    const audio = sharedAudio || new Audio();
+    audio.playsInline = true;
+    audio.setAttribute?.('playsinline', 'true');
+    audio.volume = 1.0;
+    audio.src = audioUrl;
     currentAudio = audio;
 
-    audio.onplay = () => onStart && onStart();
+    audio.onplay = () => {
+      onStart && onStart();
+    };
+
     audio.onended = () => {
-      URL.revokeObjectURL(audioUrl);
+      if (currentAudioUrl) {
+        URL.revokeObjectURL(currentAudioUrl);
+        currentAudioUrl = null;
+      }
       currentAudio = null;
       onEnd && onEnd();
     };
+
     audio.onerror = (e) => {
-      URL.revokeObjectURL(audioUrl);
+      if (currentAudioUrl) {
+        URL.revokeObjectURL(currentAudioUrl);
+        currentAudioUrl = null;
+      }
       currentAudio = null;
       onError && onError(e);
       onEnd && onEnd();
@@ -111,8 +163,8 @@ export async function speakTextWithElevenLabs({
 
     await audio.play();
   } catch (err) {
+    console.error('TTS ElevenLabs Fallback:', err);
     onError && onError(err);
     onEnd && onEnd();
   }
 }
-

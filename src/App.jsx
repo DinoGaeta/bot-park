@@ -258,12 +258,10 @@ export default function App() {
 
   // Chiavi API (Gemini & ElevenLabs)
   const [geminiApiKey, setGeminiApiKey] = useState(
-    import.meta.env.VITE_GEMINI_API_KEY ||
-      ''
+    import.meta.env.VITE_GEMINI_API_KEY || ''
   );
   const [elevenLabsApiKey, setElevenLabsApiKey] = useState(
-    import.meta.env.VITE_ELEVENLABS_API_KEY ||
-      ''
+    import.meta.env.VITE_ELEVENLABS_API_KEY || ''
   );
 
   // Memoria live letta dalla Smart TV (172.20.10.3) + memoria_gemini.txt + ponte Antigravity
@@ -308,6 +306,80 @@ export default function App() {
   const pendingCreatedBotIdRef = useRef(null);
   const pendingClearedBotIdRef = useRef(null);
 
+  const getClientMessageKey = (msg) => {
+    if (!msg || typeof msg !== 'object') return '';
+    if (msg.id) return `id::${msg.id}`;
+    const role = msg.role || 'assistant';
+    const raw = String(msg.content || '')
+      .replace(/\s+/g, ' ')
+      .trim();
+    if (!raw) return `empty::${role}`;
+    return `txt::${role}::${raw.slice(0, 140)}`;
+  };
+
+  const mergeClientMessageThreads = (localArr, remoteArr) => {
+    const lList = Array.isArray(localArr) ? localArr : [];
+    const rList = Array.isArray(remoteArr) ? remoteArr : [];
+    if (lList.length === 0) return rList;
+    if (rList.length === 0) return lList;
+
+    // Se il remoto è un reset esplicito ("Cronologia chat azzerata"), applichiamolo subito
+    if (
+      rList.length === 1 &&
+      String(rList[0]?.content || '').startsWith('Cronologia chat azzerata.')
+    ) {
+      return rList;
+    }
+
+    const merged = [];
+    const keyToIdx = new Map();
+    const upsert = (msg) => {
+      if (!msg || typeof msg !== 'object') return;
+      const key = getClientMessageKey(msg);
+      if (!key) {
+        merged.push(msg);
+        return;
+      }
+      const existingIdx = keyToIdx.get(key);
+      if (existingIdx !== undefined) {
+        const prevMsg = merged[existingIdx];
+        const prevLen = String(prevMsg.content || '').length;
+        const curLen = String(msg.content || '').length;
+        merged[existingIdx] =
+          curLen >= prevLen ? { ...prevMsg, ...msg } : { ...msg, ...prevMsg };
+        return;
+      }
+      if (
+        msg.role === 'assistant' &&
+        merged.length > 0 &&
+        merged[merged.length - 1]?.role === 'assistant'
+      ) {
+        const last = merged[merged.length - 1];
+        const lastTxt = String(last.content || '').trim();
+        const curTxt = String(msg.content || '').trim();
+        const isStreamProg =
+          !msg.id &&
+          !last.id &&
+          (lastTxt === '' ||
+            curTxt === '' ||
+            (lastTxt.length < 140 && curTxt.startsWith(lastTxt)) ||
+            (curTxt.length < 140 && lastTxt.startsWith(curTxt)));
+        if (isStreamProg && last.timestamp === msg.timestamp) {
+          merged[merged.length - 1] =
+            curTxt.length >= lastTxt.length ? { ...last, ...msg } : { ...msg, ...last };
+          keyToIdx.set(getClientMessageKey(merged[merged.length - 1]), merged.length - 1);
+          return;
+        }
+      }
+      keyToIdx.set(key, merged.length);
+      merged.push(msg);
+    };
+
+    lList.forEach(upsert);
+    rList.forEach(upsert);
+    return merged;
+  };
+
   const applyRemoteState = useCallback((remoteState, { force = false } = {}) => {
     if (!remoteState || typeof remoteState !== 'object') return;
     const incomingTs = Number(remoteState.updatedAt || 0);
@@ -324,6 +396,10 @@ export default function App() {
         localStorage.setItem('bot_park_last_sync_at', String(lastSyncAtRef.current));
       } catch {}
     }
+
+    const prevBotsMap = new Map(
+      (Array.isArray(botsRef.current) ? botsRef.current : []).map((b) => [b.id, b])
+    );
 
     if (Array.isArray(remoteState.bots) && remoteState.bots.length > 0) {
       setBots(
@@ -342,7 +418,33 @@ export default function App() {
       );
     }
     if (remoteState.botMessages && typeof remoteState.botMessages === 'object') {
-      setBotMessages(remoteState.botMessages);
+      setBotMessages((prev) => {
+        const next = { ...prev };
+        const allIds = new Set([
+          ...Object.keys(prev || {}),
+          ...Object.keys(remoteState.botMessages || {}),
+        ]);
+        for (const bId of allIds) {
+          const remoteArr = remoteState.botMessages[bId];
+          const localArr = prev?.[bId];
+          const prevBot = prevBotsMap.get(bId);
+          const nextBot = Array.isArray(remoteState.bots)
+            ? remoteState.bots.find((rb) => rb.id === bId)
+            : null;
+          const roomSwitched =
+            nextBot?.activeSessionId &&
+            prevBot?.activeSessionId &&
+            nextBot.activeSessionId !== prevBot.activeSessionId;
+
+          if (!Array.isArray(remoteArr)) continue;
+          if (roomSwitched) {
+            next[bId] = remoteArr;
+          } else {
+            next[bId] = mergeClientMessageThreads(localArr, remoteArr);
+          }
+        }
+        return next;
+      });
     }
     if (Array.isArray(remoteState.routines) && remoteState.routines.length > 0) {
       setRoutines(remoteState.routines);
@@ -572,17 +674,28 @@ export default function App() {
       if (msg.direction === 'antigravity_to_bot' && !seenBridgeMsgIdsRef.current.has(msg.id)) {
         seenBridgeMsgIdsRef.current.add(msg.id);
         const targetId = msg.targetId || 'samantha';
-        setBotMessages((prev) => ({
-          ...prev,
-          [targetId]: [
-            ...(prev[targetId] || []),
-            {
-              role: 'assistant',
-              content: `⚡ **Messaggio autonomo da Antigravity:**\n\n${msg.message}`,
-              timestamp: `Ponte Antigravity • ${msg.timeLabel || ''}`,
-            },
-          ],
-        }));
+        const formattedContent = `⚡ **Messaggio autonomo da Antigravity:**\n\n${msg.message}`;
+        setBotMessages((prev) => {
+          const existingThread = prev[targetId] || [];
+          const alreadyThere = existingThread.some(
+            (m) =>
+              m.id === msg.id ||
+              String(m.content || '').trim() === formattedContent.trim()
+          );
+          if (alreadyThere) return prev;
+          return {
+            ...prev,
+            [targetId]: [
+              ...existingThread,
+              {
+                id: msg.id,
+                role: 'assistant',
+                content: formattedContent,
+                timestamp: `Ponte Antigravity • ${msg.timeLabel || ''}`,
+              },
+            ],
+          };
+        });
       }
     };
 

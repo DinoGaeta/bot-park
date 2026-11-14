@@ -4,6 +4,9 @@ import tailwindcss from '@tailwindcss/vite';
 import { execFile, exec } from 'child_process';
 import { promisify } from 'util';
 import fs from 'fs';
+import http from 'http';
+import https from 'https';
+import net from 'net';
 import os from 'os';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -14,7 +17,7 @@ const __dirname = path.dirname(__filename);
 const execFileAsync = promisify(execFile);
 const execAsync = promisify(exec);
 
-const ADB_PATH = 'C:\\Users\\corra\\.gemini\\antigravity\\scratch\\tools\\platform-tools\\adb.exe';
+const ADB_PATH = process.env.ADB_PATH || 'adb';
 const TV_SERIAL = '172.20.10.3:5555';
 const WORKSPACES_ROOT = path.join(__dirname, 'workspaces');
 const VAULT_FILE = path.join(WORKSPACES_ROOT, '_vault.json');
@@ -507,6 +510,73 @@ function readMobileSyncState() {
   }
 }
 
+function getMessageMergeKey(msg) {
+  if (!msg || typeof msg !== 'object') return '';
+  if (msg.id) return `id::${msg.id}`;
+  const role = msg.role || 'assistant';
+  const raw = String(msg.content || '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!raw) return `empty::${role}`;
+  return `txt::${role}::${raw.slice(0, 140)}`;
+}
+
+function mergeMessageThreads(diskArr, incomingArr) {
+  const dList = Array.isArray(diskArr) ? diskArr : [];
+  const iList = Array.isArray(incomingArr) ? incomingArr : [];
+  if (dList.length === 0) return iList;
+  if (iList.length === 0) return dList;
+
+  const merged = [];
+  const keyToIdx = new Map();
+
+  const upsert = (msg) => {
+    if (!msg || typeof msg !== 'object') return;
+    const key = getMessageMergeKey(msg);
+    if (!key) {
+      merged.push(msg);
+      return;
+    }
+    const existingIdx = keyToIdx.get(key);
+    if (existingIdx !== undefined) {
+      const prevMsg = merged[existingIdx];
+      const prevLen = String(prevMsg.content || '').length;
+      const curLen = String(msg.content || '').length;
+      merged[existingIdx] =
+        curLen >= prevLen ? { ...prevMsg, ...msg } : { ...msg, ...prevMsg };
+      return;
+    }
+    if (
+      msg.role === 'assistant' &&
+      merged.length > 0 &&
+      merged[merged.length - 1]?.role === 'assistant'
+    ) {
+      const last = merged[merged.length - 1];
+      const lastTxt = String(last.content || '').trim();
+      const curTxt = String(msg.content || '').trim();
+      const isStreamProg =
+        !msg.id &&
+        !last.id &&
+        (lastTxt === '' ||
+          curTxt === '' ||
+          (lastTxt.length < 140 && curTxt.startsWith(lastTxt)) ||
+          (curTxt.length < 140 && lastTxt.startsWith(curTxt)));
+      if (isStreamProg && last.timestamp === msg.timestamp) {
+        merged[merged.length - 1] =
+          curTxt.length >= lastTxt.length ? { ...last, ...msg } : { ...msg, ...last };
+        keyToIdx.set(getMessageMergeKey(merged[merged.length - 1]), merged.length - 1);
+        return;
+      }
+    }
+    keyToIdx.set(key, merged.length);
+    merged.push(msg);
+  };
+
+  dList.forEach(upsert);
+  iList.forEach(upsert);
+  return merged;
+}
+
 function mergeEntangledState(diskState, incomingBody) {
   const existing = diskState && typeof diskState === 'object' ? diskState : {};
   const existingDeleted = Array.isArray(existing.deletedBotIds) ? existing.deletedBotIds : [];
@@ -575,10 +645,11 @@ function mergeEntangledState(diskState, incomingBody) {
           } else {
             const curTs = Number(cur.updatedAt || 0);
             const sTs = Number(s.updatedAt || 0);
-            const curLen = Array.isArray(cur.messages) ? cur.messages.length : 0;
-            if (sTs > curTs || (sTs === curTs && sMsgs.length >= curLen)) {
-              sessMap.set(s.id, { ...cur, ...s, messages: sMsgs });
-            }
+            const combinedSessMsgs = mergeMessageThreads(cur.messages, sMsgs).slice(-80);
+            sessMap.set(s.id, {
+              ...(sTs >= curTs ? { ...cur, ...s } : { ...s, ...cur }),
+              messages: combinedSessMsgs,
+            });
           }
         };
         (Array.isArray(prev.sessions) ? prev.sessions : []).forEach(mergeSess);
@@ -625,16 +696,8 @@ function mergeEntangledState(diskState, incomingBody) {
 
     if (incomingBody.clearedBotId === bId) {
       mergedMsgs[bId] = iArr;
-    } else if (iArr.length > dArr.length) {
-      mergedMsgs[bId] = iArr;
-    } else if (dArr.length > iArr.length) {
-      mergedMsgs[bId] = dArr;
-    } else if (iArr.length > 0 && dArr.length > 0) {
-      const lastInLen = String(iArr[iArr.length - 1]?.content || '').length;
-      const lastDiskLen = String(dArr[dArr.length - 1]?.content || '').length;
-      mergedMsgs[bId] = lastInLen >= lastDiskLen ? iArr : dArr;
     } else {
-      mergedMsgs[bId] = iArr.length ? iArr : dArr;
+      mergedMsgs[bId] = mergeMessageThreads(dArr, iArr);
     }
   }
 
@@ -740,15 +803,142 @@ function recordBridgeCommunication({
   }
 
   writeAntigravityBridge(state);
+
+  if (direction === 'antigravity_to_bot' && cleanMsg) {
+    try {
+      const targetBotId = String(targetId || 'samantha').toLowerCase();
+      const syncState = readMobileSyncState();
+      if (syncState && typeof syncState === 'object') {
+        const prevMsgs =
+          syncState.botMessages && typeof syncState.botMessages === 'object'
+            ? syncState.botMessages
+            : {};
+        const prevThread = Array.isArray(prevMsgs[targetBotId]) ? prevMsgs[targetBotId] : [];
+        const formattedMsg = {
+          id: msgObj.id,
+          role: 'assistant',
+          content: `⚡ **Messaggio autonomo da Antigravity:**\n\n${cleanMsg}`,
+          timestamp: `Ponte Antigravity • ${timeLabel}`,
+        };
+        const nextThread = mergeMessageThreads(prevThread, [formattedMsg]).slice(-100);
+        const nextSyncState = {
+          ...syncState,
+          updatedAt: now,
+          botMessages: {
+            ...prevMsgs,
+            [targetBotId]: nextThread,
+          },
+        };
+        fs.writeFileSync(MOBILE_SYNC_FILE, JSON.stringify(nextSyncState, null, 2), 'utf8');
+        broadcastSyncEvent('entangled_state', {
+          updatedAt: now,
+          sourceClientId: '__bridge__',
+          state: nextSyncState,
+        });
+      }
+    } catch {}
+  }
+
   const resultPayload = { message: msgObj, notification: notifObj, updatedAt: now };
   broadcastSyncEvent('bridge_event', resultPayload);
   return resultPayload;
+}
+
+function startHttpsMobileProxy(server) {
+  const keyPath = path.join(WORKSPACES_ROOT, '_https_key.pem');
+  const certPath = path.join(WORKSPACES_ROOT, '_https_cert.pem');
+  if (!fs.existsSync(keyPath) || !fs.existsSync(certPath)) return;
+
+  const token = Symbol('botParkHttpsProxy');
+  globalThis.__botParkHttpsProxyToken = token;
+
+  if (globalThis.__botParkHttpsProxyServer?.listening) {
+    server?.httpServer?.once('close', () => {
+      if (globalThis.__botParkHttpsProxyToken === token) {
+        try {
+          globalThis.__botParkHttpsProxyServer?.close();
+        } catch {}
+        globalThis.__botParkHttpsProxyServer = null;
+      }
+    });
+    return;
+  }
+
+  try {
+    try {
+      globalThis.__botParkHttpsProxyServer?.close();
+    } catch {}
+
+    const options = {
+      key: fs.readFileSync(keyPath),
+      cert: fs.readFileSync(certPath),
+    };
+    const proxyServer = https.createServer(options, (req, res) => {
+      const proxyReq = http.request(
+        {
+          hostname: '127.0.0.1',
+          port: 5173,
+          path: req.url,
+          method: req.method,
+          headers: { ...req.headers, host: '127.0.0.1:5173' },
+        },
+        (proxyRes) => {
+          res.writeHead(proxyRes.statusCode || 200, proxyRes.headers);
+          proxyRes.pipe(res, { end: true });
+        }
+      );
+      proxyReq.setTimeout(0);
+      proxyReq.on('error', () => {
+        if (!res.headersSent) res.writeHead(502);
+        res.end('Bot Park HTTPS Proxy Error');
+      });
+      req.pipe(proxyReq, { end: true });
+    });
+
+    proxyServer.on('upgrade', (req, socket, head) => {
+      const upstream = net.connect(5173, '127.0.0.1', () => {
+        upstream.write(`${req.method} ${req.url} HTTP/${req.httpVersion}\r\n`);
+        for (let i = 0; i < req.rawHeaders.length; i += 2) {
+          upstream.write(`${req.rawHeaders[i]}: ${req.rawHeaders[i + 1]}\r\n`);
+        }
+        upstream.write('\r\n');
+        if (head && head.length > 0) upstream.write(head);
+        socket.pipe(upstream).pipe(socket);
+      });
+      upstream.on('error', () => socket.destroy());
+      socket.on('error', () => upstream.destroy());
+    });
+
+    proxyServer.on('error', (err) => {
+      if (err?.code === 'EADDRINUSE' && globalThis.__botParkHttpsProxyToken === token) {
+        setTimeout(() => {
+          if (globalThis.__botParkHttpsProxyToken === token && !proxyServer.listening) {
+            try {
+              proxyServer.listen(5443, '0.0.0.0');
+            } catch {}
+          }
+        }, 400);
+      }
+    });
+    proxyServer.listen(5443, '0.0.0.0');
+    globalThis.__botParkHttpsProxyServer = proxyServer;
+
+    server?.httpServer?.once('close', () => {
+      if (globalThis.__botParkHttpsProxyToken === token) {
+        try {
+          proxyServer.close();
+        } catch {}
+        globalThis.__botParkHttpsProxyServer = null;
+      }
+    });
+  } catch {}
 }
 
 function botParkBackendPlugin() {
   return {
     name: 'bot-park-backend',
     configureServer(server) {
+      startHttpsMobileProxy(server);
       server.middlewares.use(async (req, res, next) => {
         if (!req.url || !req.url.startsWith('/api/')) {
           return next();
@@ -1554,7 +1744,9 @@ function botParkBackendPlugin() {
                 ok: true,
                 lanIp,
                 port: 5173,
+                httpsPort: 5443,
                 mobileUrl: `http://${lanIp}:5173`,
+                httpsMobileUrl: `https://${lanIp}:5443`,
               })
             );
           }
