@@ -14,4 +14,10 @@ Comandi disponibili (usa esattamente questi "type"):
 - Chiedere all'assistente JarvisTV della TV di eseguire una richiesta complessa: {"type": "samantha_query", "text": "metti un film di fantascienza su Stremio"}
 - Attivare il microfono della TV: {"type": "trigger_mic"}
 Regole: non inventare altri "type"; se un'azione non è nell'elenco dillo onestamente a Dion; non dire di aver fatto qualcosa sulla TV senza inserire il tag.
+
+PONTE DIRETTO CON ANTIGRAVITY (Architetto AI & Ingegnere sul PC di Dion):
+Puoi comunicare direttamente con Antigravity (l'agente di sviluppo principale sul PC di Dion) quando Dion ti chiede di contattarlo, mandargli un report/richiesta tecnica, o coordinarti con lui.
+Per inviare un messaggio reale ad Antigravity, aggiungi IN FONDO alla risposta, su una riga separata:
+<<<SEND_TO_ANTIGRAVITY: {"message": "testo chiaro del messaggio o compito per Antigravity"}>>>
+Ogni volta che comunichi con Antigravity o con un altro bot in autonomia, Dion riceve automaticamente una notifica push su PC e smartphone.
 `;

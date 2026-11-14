@@ -214,8 +214,10 @@ export default function App() {
       ''
   );
 
-  // Memoria live letta dalla Smart TV (172.20.10.3) + memoria_gemini.txt
+  // Memoria live letta dalla Smart TV (172.20.10.3) + memoria_gemini.txt + ponte Antigravity
   const [tvLiveMemorySummary, setTvLiveMemorySummary] = useState('');
+  const [antigravityBridgeContext, setAntigravityBridgeContext] = useState('');
+  const [pushBanners, setPushBanners] = useState([]);
 
   // Indice messaggio in riproduzione audio
   const [speakingMessageIndex, setSpeakingMessageIndex] = useState(null);
@@ -235,6 +237,151 @@ export default function App() {
   const abortControllerRef = useRef(null);
   const speechRecognitionRef = useRef(null);
   const isSyncedReadyRef = useRef(false);
+  const isBridgeInitRef = useRef(false);
+  const seenPushIdsRef = useRef(new Set());
+  const seenBridgeMsgIdsRef = useRef(new Set());
+
+  const triggerPushNotification = useCallback(async (notif) => {
+    if (!notif || !notif.id) return;
+    if (seenPushIdsRef.current.has(notif.id)) return;
+    seenPushIdsRef.current.add(notif.id);
+
+    sounds.play('chime');
+    setPushBanners((prev) => [notif, ...prev].slice(0, 4));
+    setTimeout(() => {
+      setPushBanners((prev) => prev.filter((item) => item.id !== notif.id));
+    }, 7500);
+
+    try {
+      if (window.botParkAPI?.notify) {
+        window.botParkAPI.notify({
+          title: notif.title || 'Bot Park • Notifica Push',
+          body: notif.body || '',
+        });
+      }
+    } catch {}
+
+    try {
+      if (typeof window !== 'undefined' && 'Notification' in window && window.Notification.permission === 'granted') {
+        if ('serviceWorker' in navigator) {
+          const reg = await navigator.serviceWorker.ready.catch(() => null);
+          if (reg && reg.active) {
+            reg.active.postMessage({ type: 'SHOW_PUSH_NOTIFICATION', ...notif });
+            return;
+          }
+        }
+        if (!window.botParkAPI?.notify) {
+          new window.Notification(notif.title || 'Bot Park', {
+            body: notif.body || '',
+            icon: '/bot_park_icon.png',
+            tag: notif.id,
+          });
+        }
+      }
+    } catch {}
+  }, []);
+
+  // Polling automatico del ponte Antigravity + auto-sincronizzazione memoria_gemini.txt + click da notifica PWA
+  useEffect(() => {
+    let active = true;
+
+    const pollBridge = async () => {
+      try {
+        const res = await fetch('/api/bridge/antigravity');
+        const data = await res.json();
+        if (!active || !data?.ok) return;
+
+        const parts = [];
+        if (data.diaryExcerpt) {
+          parts.push(`\n\n[DIARIO CONDIVISO MEMORIA_GEMINI.TXT (AUTO-SINCRONIZZATO CON ANTIGRAVITY)]:\n${data.diaryExcerpt}`);
+        }
+        const recentBridgeMsgs = Array.isArray(data.messages) ? data.messages.slice(-8) : [];
+        if (recentBridgeMsgs.length > 0) {
+          const lines = recentBridgeMsgs
+            .map((m) => `- [${m.timeLabel || ''}] ${m.senderName} → ${m.targetName}: ${m.message}`)
+            .join('\n');
+          parts.push(`\n\n[ULTIMI MESSAGGI SUL PONTE ANTIGRAVITY ↔ BOT PARK]:\n${lines}`);
+        }
+        setAntigravityBridgeContext(parts.join(''));
+
+        const lastSeenTs = Number(localStorage.getItem('bot_park_last_bridge_msg_ts') || 0);
+        let maxTs = lastSeenTs;
+
+        if (!isBridgeInitRef.current) {
+          isBridgeInitRef.current = true;
+          (data.notifications || []).forEach((n) => {
+            if (Number(n.timestamp || 0) <= lastSeenTs || n.direction !== 'antigravity_to_bot') {
+              seenPushIdsRef.current.add(n.id);
+            }
+          });
+          recentBridgeMsgs.forEach((m) => {
+            if (Number(m.timestamp || 0) <= lastSeenTs || m.direction !== 'antigravity_to_bot') {
+              seenBridgeMsgIdsRef.current.add(m.id);
+            }
+          });
+        }
+
+        const allMsgs = Array.isArray(data.messages) ? data.messages : [];
+        for (const msg of allMsgs) {
+          if (msg.direction === 'antigravity_to_bot' && !seenBridgeMsgIdsRef.current.has(msg.id)) {
+            seenBridgeMsgIdsRef.current.add(msg.id);
+            const targetId = msg.targetId || 'samantha';
+            setBotMessages((prev) => ({
+              ...prev,
+              [targetId]: [
+                ...(prev[targetId] || []),
+                {
+                  role: 'assistant',
+                  content: `⚡ **Messaggio autonomo da Antigravity:**\n\n${msg.message}`,
+                  timestamp: `Ponte Antigravity • ${msg.timeLabel || ''}`,
+                },
+              ],
+            }));
+          }
+          if (Number(msg.timestamp || 0) > maxTs) {
+            maxTs = Number(msg.timestamp || 0);
+          }
+        }
+
+        const allNotifs = Array.isArray(data.notifications) ? data.notifications : [];
+        for (const notif of allNotifs) {
+          if (!seenPushIdsRef.current.has(notif.id)) {
+            await triggerPushNotification(notif);
+          }
+          if (Number(notif.timestamp || 0) > maxTs) {
+            maxTs = Number(notif.timestamp || 0);
+          }
+        }
+
+        if (maxTs > lastSeenTs) {
+          try {
+            localStorage.setItem('bot_park_last_bridge_msg_ts', String(maxTs));
+          } catch {}
+        }
+      } catch {}
+    };
+
+    pollBridge();
+    const interval = setInterval(pollBridge, 5000);
+
+    const onSwMessage = (ev) => {
+      if (ev?.data?.type === 'BOTPARK_PUSH_CLICK' && ev.data.botId) {
+        setActiveBotId(ev.data.botId);
+        if (window.innerWidth < 768) setMobileScreen('chat');
+      }
+    };
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.addEventListener('message', onSwMessage);
+    }
+
+    return () => {
+      active = false;
+      clearInterval(interval);
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.removeEventListener('message', onSwMessage);
+      }
+    };
+  }, [triggerPushNotification]);
 
   // Carica i secret locali da SamanthaSecure + sincronizza TV e memoria condivisa su disco PC
   useEffect(() => {
@@ -547,6 +694,26 @@ export default function App() {
                     : b
                 )
               );
+
+              try {
+                const pushRes = await fetch('/api/bridge/antigravity', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    direction: 'bot_to_bot',
+                    senderId: senderBot?.id || senderBotId,
+                    senderName: senderBot?.name || senderBotId,
+                    senderColor: senderBot?.color || '#FF3B9A',
+                    targetId: targetBot.id,
+                    targetName: targetBot.name,
+                    message: `${payload.message} → ${cleanReply.slice(0, 120)}`,
+                  }),
+                });
+                const pushData = await pushRes.json();
+                if (pushData?.notification) {
+                  await triggerPushNotification(pushData.notification);
+                }
+              } catch {}
             }
           } catch (e) {
             console.error('Errore invio messaggio inter-bot:', e);
@@ -595,8 +762,62 @@ export default function App() {
           }
         }
       }
+
+      // 6. Comunicazione autonoma verso Antigravity (<<<SEND_TO_ANTIGRAVITY: {...}>>>)
+      if (fullAssistantText.includes('<<<SEND_TO_ANTIGRAVITY:')) {
+        const agMatch = fullAssistantText.match(/<<<SEND_TO_ANTIGRAVITY:\s*([\s\S]*?)\s*>>>/);
+        if (agMatch && agMatch[1]) {
+          try {
+            let agMessage = '';
+            const rawInner = agMatch[1].trim();
+            if (rawInner.startsWith('{')) {
+              const parsed = JSON.parse(rawInner);
+              agMessage = String(parsed.message || parsed.text || '').trim();
+            } else {
+              agMessage = rawInner.replace(/^["']|["']$/g, '').trim();
+            }
+            const senderBot = bots.find((b) => b.id === senderBotId);
+            if (agMessage) {
+              const res = await fetch('/api/bridge/antigravity', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  direction: 'bot_to_antigravity',
+                  senderId: senderBot?.id || senderBotId,
+                  senderName: senderBot?.name || senderBotId,
+                  senderColor: senderBot?.color || '#FF3B9A',
+                  targetId: 'antigravity',
+                  targetName: 'Antigravity',
+                  message: agMessage,
+                }),
+              });
+              const data = await res.json();
+              if (data && data.ok) {
+                setBotMessages((prev) => {
+                  const thread = [...(prev[senderBotId] || [])];
+                  if (thread.length > 0) {
+                    thread[thread.length - 1] = {
+                      ...thread[thread.length - 1],
+                      actionChip: {
+                        icon: '🛰️',
+                        text: 'Inviato ad Antigravity • Notifica Push inviata',
+                      },
+                    };
+                  }
+                  return { ...prev, [senderBotId]: thread };
+                });
+                if (data.notification) {
+                  await triggerPushNotification(data.notification);
+                }
+              }
+            }
+          } catch (e) {
+            console.error('Errore invio messaggio ad Antigravity:', e);
+          }
+        }
+      }
     },
-    [bots, botMessages, geminiApiKey]
+    [bots, botMessages, geminiApiKey, triggerPushNotification]
   );
 
   // Passa a Versione Vergine Pulita
@@ -706,6 +927,7 @@ export default function App() {
         .replace(/<<<SEND_TO_BOT:[\s\S]*?>>>/g, '')
         .replace(/<<<WRITE_FILE:[\s\S]*?>>>/g, '')
         .replace(/<<<REMEMBER:[\s\S]*?>>>/g, '')
+        .replace(/<<<SEND_TO_ANTIGRAVITY:[\s\S]*?>>>/g, '')
         .trim();
 
       setBotMessages((prev) => {
@@ -801,6 +1023,9 @@ export default function App() {
       if (currentBotObj.isMain || currentBotObj.id === 'samantha') {
         systemPrompt += tvLiveMemorySummary;
       }
+      if (antigravityBridgeContext) {
+        systemPrompt += antigravityBridgeContext;
+      }
 
       // Inietta Memorie e Skill insegnate a questo specifico Bot (Feature #1 & #2)
       if (Array.isArray(currentBotObj.memories) && currentBotObj.memories.length > 0) {
@@ -821,11 +1046,12 @@ export default function App() {
           .join('\n\n')}`;
       }
 
-      // Istruzioni operative per salvataggio file, delega @menzioni e auto-apprendimento memoria
+      // Istruzioni operative per salvataggio file, delega @menzioni, auto-apprendimento memoria e ponte Antigravity
       systemPrompt += `\n\nCOMANDI SPECIALI A TUA DISPOSIZIONE:
 - Se Dion ti chiede di salvare un file/script/documento nella tua Libreria su disco, aggiungi a fine risposta: <<<WRITE_FILE: {"name": "nome_file.md", "content": "contenuto completo"}>>>
 - Se Dion ti insegna una preferenza permanente o ti chiede di ricordare una regola, aggiungi a fine risposta: <<<REMEMBER: "regola o fatto da ricordare">>>
-- Se Dion menziona un altro collega con @NomeBot o ti chiede di delegare a un collega, aggiungi a fine risposta: <<<SEND_TO_BOT: {"targetId": "nome_bot_minuscolo", "message": "compito da svolgere"}>>>`;
+- Se Dion menziona un altro collega con @NomeBot o ti chiede di delegare a un collega, aggiungi a fine risposta: <<<SEND_TO_BOT: {"targetId": "nome_bot_minuscolo", "message": "compito da svolgere"}>>>
+- Se Dion ti chiede di contattare/avvisare Antigravity o delegargli un'operazione tecnica sul PC, aggiungi a fine risposta: <<<SEND_TO_ANTIGRAVITY: {"message": "messaggio chiaro per Antigravity"}>>>`;
 
       // 1. Se il messaggio contiene un URL http/https, scarichiamo il contenuto live!
       const urlMatch = text.match(/https?:\/\/[^\s)]+/i);
@@ -869,6 +1095,7 @@ export default function App() {
             .replace(/<<<SEND_TO_BOT:[\s\S]*?>>>/g, '')
             .replace(/<<<WRITE_FILE:[\s\S]*?>>>/g, '')
             .replace(/<<<REMEMBER:[\s\S]*?>>>/g, '')
+            .replace(/<<<SEND_TO_ANTIGRAVITY:[\s\S]*?>>>/g, '')
             .trim();
           setBotMessages((prev) => {
             const thread = [...(prev[currentBotId] || [])];
@@ -1064,7 +1291,53 @@ export default function App() {
   };
 
   return (
-    <div className="w-screen h-screen flex bg-white overflow-hidden font-['Plus_Jakarta_Sans',sans-serif]">
+    <div className="w-screen h-screen flex bg-white overflow-hidden font-['Plus_Jakarta_Sans',sans-serif] relative">
+      {/* Dynamic Island Overlay Notifiche Push per Comunicazioni Autonome */}
+      {pushBanners.length > 0 && (
+        <div className="fixed top-3 left-1/2 -translate-x-1/2 z-[250] flex flex-col gap-2 w-[92vw] max-w-[440px] pointer-events-none">
+          {pushBanners.map((banner) => (
+            <div
+              key={banner.id}
+              onClick={() => {
+                if (banner.botId && bots.some((b) => b.id === banner.botId)) {
+                  setActiveBotId(banner.botId);
+                  if (isMobileView) setMobileScreen('chat');
+                }
+                setPushBanners((prev) => prev.filter((item) => item.id !== banner.id));
+              }}
+              className="pointer-events-auto bg-[#111216]/95 backdrop-blur-md text-white border border-white/15 rounded-2xl px-3.5 py-2.5 shadow-2xl flex items-start gap-3 cursor-pointer hover:bg-[#191b22] transition-all"
+            >
+              <span
+                className="w-2.5 h-2.5 rounded-full mt-1.5 shrink-0"
+                style={{ backgroundColor: banner.senderColor || '#FF3B9A' }}
+              />
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs font-bold truncate">{banner.title}</span>
+                  <span className="text-[10px] text-gray-400 shrink-0">{banner.timeLabel || ''}</span>
+                </div>
+                {banner.body && (
+                  <p className="text-[11.5px] text-gray-300 line-clamp-2 mt-0.5 leading-snug">
+                    {banner.body}
+                  </p>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={(ev) => {
+                  ev.stopPropagation();
+                  setPushBanners((prev) => prev.filter((item) => item.id !== banner.id));
+                }}
+                className="text-gray-400 hover:text-white text-xs font-bold px-1 cursor-pointer shrink-0"
+                title="Chiudi notifica"
+              >
+                ✕
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
       {/* 1. Sidebar Sinistra (Samantha Capo Bot in cima + Teammates Indipendenti) */}
       {(!isMobileView || mobileScreen === 'list') && (
         <SidebarLeft
@@ -1214,6 +1487,26 @@ export default function App() {
             (prev) => `${prev}\n\n[DIARIO MEMORIA_GEMINI.TXT SINCRONIZZATO]:\n${excerpt}`
           )
         }
+        onTestPushNotification={async () => {
+          const res = await fetch('/api/bridge/antigravity', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              direction: 'system_test',
+              senderId: activeBot.id,
+              senderName: activeBot.name,
+              senderColor: activeBot.color,
+              targetId: activeBot.id,
+              targetName: activeBot.name,
+              message:
+                'Ponte Antigravity e Notifiche Push attivi su Desktop, Web e Mobile!',
+            }),
+          });
+          const data = await res.json();
+          if (data?.notification) {
+            await triggerPushNotification(data.notification);
+          }
+        }}
       />
 
       {/* 7. Virtual Computer Reale (Terminale, File Manager su Disco, Browser Live + Controllo Smart TV Android) */}

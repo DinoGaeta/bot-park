@@ -19,7 +19,10 @@ const TV_SERIAL = '172.20.10.3:5555';
 const WORKSPACES_ROOT = path.join(__dirname, 'workspaces');
 const VAULT_FILE = path.join(WORKSPACES_ROOT, '_vault.json');
 const MOBILE_SYNC_FILE = path.join(WORKSPACES_ROOT, '_mobile_sync_state.json');
-const MEMORIA_GEMINI_PATH = 'C:\\Users\\corra\\Desktop\\memoria_gemini.txt';
+const ANTIGRAVITY_BRIDGE_FILE = path.join(WORKSPACES_ROOT, '_antigravity_bridge.json');
+const PUSH_DEVICES_FILE = path.join(WORKSPACES_ROOT, '_push_devices.json');
+const MEMORIA_GEMINI_PATH = path.join(os.homedir(), 'Desktop', 'memoria_gemini.txt');
+const DESKTOP_BRIDGE_PATH = path.join(os.homedir(), 'Desktop', 'BRIDGE_GROK_ANTIGRAVITY.txt');
 
 function getLocalLanIp() {
   const nets = os.networkInterfaces();
@@ -121,15 +124,15 @@ function ensureVaultFile() {
         id: 'v1',
         type: 'contact',
         title: 'Email di Bot Park',
-        subtitle: 'corradogaeta123@gmail.com',
-        secret: 'corradogaeta123@gmail.com',
+        subtitle: 'user@example.com',
+        secret: 'user@example.com',
         icon: 'mail',
       },
       {
         id: 'v2',
         type: 'credential',
         title: 'instagram.com',
-        subtitle: 'corradogaeta123@gmail.com',
+        subtitle: 'user@example.com',
         secret: 'Account principale collegato',
         icon: 'instagram',
       },
@@ -393,6 +396,164 @@ function capAndPersistAgentMemories(rawBots, rawMessages) {
   }
 
   return { cappedBots, cappedMessages };
+}
+
+function formatLocalTimestampIsoLike(d = new Date()) {
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+}
+
+function readAntigravityBridge() {
+  ensureVaultFile();
+  let state = {
+    updatedAt: 0,
+    lastExternalAntigravitySig: '',
+    messages: [],
+    notifications: [],
+  };
+  if (fs.existsSync(ANTIGRAVITY_BRIDGE_FILE)) {
+    try {
+      const parsed = JSON.parse(fs.readFileSync(ANTIGRAVITY_BRIDGE_FILE, 'utf8'));
+      if (parsed && typeof parsed === 'object') {
+        state = { ...state, ...parsed };
+      }
+    } catch {}
+  }
+  return state;
+}
+
+function writeAntigravityBridge(state) {
+  ensureVaultFile();
+  fs.writeFileSync(ANTIGRAVITY_BRIDGE_FILE, JSON.stringify(state, null, 2), 'utf8');
+}
+
+function importExternalBridgeUpdates(state) {
+  try {
+    if (!fs.existsSync(DESKTOP_BRIDGE_PATH)) return state;
+    const raw = fs.readFileSync(DESKTOP_BRIDGE_PATH, 'utf8');
+    const blocks = raw
+      .split(/\r?\n---\r?\n/)
+      .map((b) => b.trim())
+      .filter(Boolean);
+    for (let i = blocks.length - 1; i >= 0; i--) {
+      const blk = blocks[i];
+      const headerMatch = blk.match(/^\[([^\]]+)\]\s*ANTIGRAVITY\s*\|\s*MSG\s*\r?\n([\s\S]+)$/i);
+      if (!headerMatch) continue;
+      const sig = `${headerMatch[1]}::${headerMatch[2].slice(0, 80)}`;
+      if (sig === state.lastExternalAntigravitySig) break;
+
+      const text = headerMatch[2].trim();
+      const now = Date.now();
+      const msgObj = {
+        id: `ag_ext_${now}`,
+        direction: 'antigravity_to_bot',
+        senderId: 'antigravity',
+        senderName: 'Antigravity',
+        senderColor: '#2563EB',
+        targetId: 'samantha',
+        targetName: 'Samantha',
+        message: text,
+        timestamp: now,
+        timeLabel: new Date(now).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' }),
+      };
+      const notifObj = {
+        id: `push_ag_ext_${now}`,
+        title: '⚡ Antigravity → Samantha',
+        body: text.slice(0, 140),
+        botId: 'samantha',
+        senderName: 'Antigravity',
+        senderColor: '#2563EB',
+        direction: 'antigravity_to_bot',
+        timestamp: now,
+        timeLabel: msgObj.timeLabel,
+      };
+      state.lastExternalAntigravitySig = sig;
+      state.updatedAt = now;
+      state.messages = [...(state.messages || []), msgObj].slice(-100);
+      state.notifications = [...(state.notifications || []), notifObj].slice(-100);
+      writeAntigravityBridge(state);
+      break;
+    }
+  } catch {}
+  return state;
+}
+
+function recordBridgeCommunication({
+  direction = 'bot_to_antigravity',
+  senderId = 'samantha',
+  senderName = 'Samantha',
+  senderColor = '#FF3B9A',
+  targetId = 'antigravity',
+  targetName = 'Antigravity',
+  message = '',
+}) {
+  const cleanMsg = String(message || '').trim();
+  const state = readAntigravityBridge();
+  const now = Date.now();
+  const timeLabel = new Date(now).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
+
+  const msgObj = {
+    id: `br_${now}_${Math.random().toString(36).slice(2, 6)}`,
+    direction,
+    senderId,
+    senderName,
+    senderColor,
+    targetId,
+    targetName,
+    message: cleanMsg,
+    timestamp: now,
+    timeLabel,
+  };
+
+  let title = `🛰️ ${senderName} → Antigravity`;
+  if (direction === 'antigravity_to_bot') {
+    title = `⚡ Antigravity → ${targetName || 'Samantha'}`;
+  } else if (direction === 'bot_to_bot') {
+    title = `💬 ${senderName} → ${targetName}`;
+  } else if (direction === 'system_test') {
+    title = '🔔 Bot Park • Notifica Push Attiva';
+  }
+
+  const notifObj = {
+    id: `push_${now}_${Math.random().toString(36).slice(2, 6)}`,
+    title,
+    body: cleanMsg.slice(0, 160),
+    botId:
+      direction === 'antigravity_to_bot' || direction === 'bot_to_bot'
+        ? targetId || senderId
+        : senderId,
+    senderName,
+    senderColor,
+    direction,
+    timestamp: now,
+    timeLabel,
+  };
+
+  state.updatedAt = now;
+  state.messages = [...(state.messages || []), msgObj].slice(-100);
+  state.notifications = [...(state.notifications || []), notifObj].slice(-100);
+
+  if (direction === 'bot_to_antigravity' && cleanMsg) {
+    try {
+      const bridgeBlock = `\n[${formatLocalTimestampIsoLike()}] BOT_PARK (${senderName}) | MSG\n${cleanMsg}\n---\n`;
+      fs.appendFileSync(DESKTOP_BRIDGE_PATH, bridgeBlock, 'utf8');
+    } catch {}
+    try {
+      const diaryEntry = `\n[${formatLocalTimestampIsoLike()}] MESSAGGIO AUTONOMO DA ${String(senderName).toUpperCase()} (BOT PARK) AD ANTIGRAVITY:\n${cleanMsg}\n`;
+      fs.appendFileSync(MEMORIA_GEMINI_PATH, diaryEntry, 'utf8');
+    } catch {}
+    try {
+      const dir = ensureBotWorkspace(senderId);
+      const mdPath = path.join(dir, 'bridge_antigravity.md');
+      const mdLine = `- **[${formatLocalTimestampIsoLike()}] ${senderName} → Antigravity:** ${cleanMsg}\n`;
+      fs.appendFileSync(mdPath, mdLine, 'utf8');
+    } catch {}
+  } else if (direction === 'antigravity_to_bot' && cleanMsg) {
+    state.lastExternalAntigravitySig = `API::${cleanMsg.slice(0, 80)}`;
+  }
+
+  writeAntigravityBridge(state);
+  return { message: msgObj, notification: notifObj, updatedAt: now };
 }
 
 function botParkBackendPlugin() {
@@ -1216,6 +1377,105 @@ function botParkBackendPlugin() {
             return res.end(JSON.stringify({ ok: true, updatedAt: payload.updatedAt }));
           }
 
+          // =========================================================================
+          // H. PONTE BIDIREZIONALE ANTIGRAVITY & NOTIFICHE PUSH (/api/bridge/*, /api/push/*)
+          // =========================================================================
+          if (pathname === '/api/bridge/antigravity' && req.method === 'GET') {
+            let bridgeState = readAntigravityBridge();
+            bridgeState = importExternalBridgeUpdates(bridgeState);
+            let diaryExcerpt = '';
+            if (fs.existsSync(MEMORIA_GEMINI_PATH)) {
+              try {
+                diaryExcerpt = fs.readFileSync(MEMORIA_GEMINI_PATH, 'utf8').slice(-3000);
+              } catch {}
+            }
+            res.setHeader('Content-Type', 'application/json');
+            return res.end(
+              JSON.stringify({
+                ok: true,
+                updatedAt: bridgeState.updatedAt || 0,
+                messages: bridgeState.messages || [],
+                notifications: bridgeState.notifications || [],
+                diaryExcerpt,
+              })
+            );
+          }
+
+          if (pathname === '/api/bridge/antigravity' && req.method === 'POST') {
+            const body = await readJsonBody(req);
+            const result = recordBridgeCommunication({
+              direction: body.direction || 'bot_to_antigravity',
+              senderId: body.senderId || 'samantha',
+              senderName: body.senderName || 'Samantha',
+              senderColor: body.senderColor || '#FF3B9A',
+              targetId: body.targetId || 'antigravity',
+              targetName: body.targetName || 'Antigravity',
+              message: body.message || '',
+            });
+            res.setHeader('Content-Type', 'application/json');
+            return res.end(
+              JSON.stringify({
+                ok: true,
+                message: result.message,
+                notification: result.notification,
+                updatedAt: result.updatedAt,
+              })
+            );
+          }
+
+          if (pathname === '/api/push/poll' && req.method === 'GET') {
+            let bridgeState = readAntigravityBridge();
+            bridgeState = importExternalBridgeUpdates(bridgeState);
+            const since = Number(urlObj.searchParams.get('since') || 0);
+            const notifications = (bridgeState.notifications || []).filter(
+              (n) => Number(n.timestamp || 0) > since
+            );
+            res.setHeader('Content-Type', 'application/json');
+            return res.end(
+              JSON.stringify({
+                ok: true,
+                serverTime: Date.now(),
+                notifications,
+              })
+            );
+          }
+
+          if (pathname === '/api/push/register-device' && req.method === 'POST') {
+            ensureVaultFile();
+            const body = await readJsonBody(req);
+            const deviceId = String(body.deviceId || `dev_${Date.now()}`).trim();
+            const platform = String(body.platform || 'unknown').trim();
+            const pushToken = String(body.pushToken || '').trim();
+            let devices = [];
+            if (fs.existsSync(PUSH_DEVICES_FILE)) {
+              try {
+                const parsed = JSON.parse(fs.readFileSync(PUSH_DEVICES_FILE, 'utf8'));
+                if (Array.isArray(parsed)) devices = parsed;
+              } catch {}
+            }
+            const nextEntry = {
+              deviceId,
+              platform,
+              pushToken,
+              updatedAt: Date.now(),
+            };
+            const existingIdx = devices.findIndex((d) => d.deviceId === deviceId);
+            if (existingIdx >= 0) {
+              devices[existingIdx] = nextEntry;
+            } else {
+              devices.push(nextEntry);
+            }
+            fs.writeFileSync(PUSH_DEVICES_FILE, JSON.stringify(devices, null, 2), 'utf8');
+            res.setHeader('Content-Type', 'application/json');
+            return res.end(
+              JSON.stringify({
+                ok: true,
+                registered: true,
+                totalDevices: devices.length,
+              })
+            );
+          }
+
           next();
         } catch (err) {
           res.statusCode = 500;
@@ -1238,7 +1498,13 @@ export default defineConfig({
     port: 5173,
     strictPort: true,
     watch: {
-      ignored: ['**/workspaces/**', '**/_mobile_sync_state.json', '**/_vault.json'],
+      ignored: [
+        '**/workspaces/**',
+        '**/_mobile_sync_state.json',
+        '**/_vault.json',
+        '**/_antigravity_bridge.json',
+        '**/_push_devices.json',
+      ],
     },
   },
   base: './',

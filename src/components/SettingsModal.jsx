@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   X,
@@ -15,6 +15,7 @@ import {
   Eye,
   EyeOff,
   Smartphone,
+  Bell,
 } from 'lucide-react';
 import { sounds } from '../services/soundEffects';
 
@@ -23,16 +24,18 @@ export default function SettingsModal({
   onClose,
   onOpenPairModal,
   onMemoryImported,
+  onTestPushNotification,
   initialTab = 'generali',
   geminiApiKey = '',
   elevenLabsApiKey = '',
   onSaveApiKeys,
-  activeBotId = 'capo-bot',
-  activeBotName = 'Capo Bot',
+  activeBotId = 'samantha',
+  activeBotName = 'Samantha',
 }) {
   const [activeTab, setActiveTab] = useState('generali');
   const [copiedEmail, setCopiedEmail] = useState(false);
   const [importStatus, setImportStatus] = useState('');
+  const [pushTestStatus, setPushTestStatus] = useState('');
 
   // Stati Chiavi API reali
   const [geminiInput, setGeminiInput] = useState(geminiApiKey);
@@ -115,7 +118,7 @@ export default function SettingsModal({
       const data = await res.json();
       if (data && data.ok) {
         const kb = Math.round((data.totalChars || 0) / 1024);
-        setImportStatus(`✔ Importati ${kb} KB da memoria_gemini.txt nel workspace di Capo Bot!`);
+        setImportStatus(`✔ Importati ${kb} KB da memoria_gemini.txt nel workspace di Samantha!`);
         if (onMemoryImported && data.excerpt) {
           onMemoryImported(data.excerpt);
         }
@@ -361,6 +364,51 @@ export default function SettingsModal({
                     )}
                   </div>
                 </div>
+
+                {/* Ponte Antigravity & Notifiche Push (PC + Mobile iOS/Android) */}
+                <div>
+                  <div className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-2">
+                    Ponte Antigravity & Notifiche Push
+                  </div>
+                  <div className="p-4 rounded-2xl border border-gray-200 space-y-2">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <div className="font-bold text-gray-900 flex items-center gap-1.5">
+                          <Bell size={13} className="text-pink-600" />
+                          <span>Notifiche Push Comunicazioni Autonome</span>
+                        </div>
+                        <div className="text-gray-500 text-[11px]">
+                          Avvisi istantanei su Desktop (Windows/Electron), Dynamic Island e predisposizione Mobile iOS/Android
+                        </div>
+                      </div>
+                      <button
+                        onClick={async () => {
+                          sounds.play('tick');
+                          let permState = 'in-app';
+                          if (typeof window !== 'undefined' && 'Notification' in window) {
+                            try {
+                              permState = await window.Notification.requestPermission();
+                            } catch {}
+                          }
+                          if (onTestPushNotification) {
+                            await onTestPushNotification();
+                          }
+                          setPushTestStatus(
+                            `Notifica push inviata! Permesso browser: ${permState} (Dynamic Island ed Electron sempre attivi).`
+                          );
+                        }}
+                        className="px-3.5 py-1.5 rounded-full bg-black text-white hover:bg-gray-800 font-semibold cursor-pointer shrink-0 transition-colors"
+                      >
+                        Attiva & Testa Notifica Push
+                      </button>
+                    </div>
+                    {pushTestStatus && (
+                      <div className="text-xs font-semibold text-emerald-600 bg-emerald-50 px-3 py-1.5 rounded-xl border border-emerald-200">
+                        {pushTestStatus}
+                      </div>
+                    )}
+                  </div>
+                </div>
               </div>
             )}
 
@@ -596,7 +644,7 @@ export default function SettingsModal({
                       />
                       <div>
                         <div className="font-bold text-gray-900">
-                          Bot Park v2.0.0 (Capo Bot + TV Edition)
+                          Bot Park v2.0.0 (Samantha Capo Bot + TV Edition)
                         </div>
                         <div className="text-gray-500 text-xs">
                           Build locale attiva con motore Gemini, voce ElevenLabs e bridge Smart TV ADB.

@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, Tray, Menu, globalShortcut, nativeImage, session } from 'electron';
+import { app, BrowserWindow, ipcMain, Tray, Menu, globalShortcut, nativeImage, session, Notification } from 'electron';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
@@ -256,4 +256,26 @@ ipcMain.handle('save-secrets', async (event, secrets) => {
     console.error('Errore salvataggio secrets:', err);
     return { success: false, error: err.message };
   }
+});
+
+ipcMain.on('send-os-notification', (_event, payload = {}) => {
+  try {
+    if (!Notification.isSupported()) return;
+    const icoPath = path.join(__dirname, '../public/bot_park_icon.ico');
+    const pngPath = path.join(__dirname, '../public/bot_park_icon.png');
+    const iconPath = process.platform === 'win32' && fs.existsSync(icoPath) ? icoPath : pngPath;
+    const notif = new Notification({
+      title: String(payload.title || 'Bot Park'),
+      body: String(payload.body || ''),
+      icon: fs.existsSync(iconPath) ? iconPath : undefined,
+    });
+    notif.on('click', () => {
+      if (mainWindow) {
+        if (mainWindow.isMinimized()) mainWindow.restore();
+        mainWindow.show();
+        mainWindow.focus();
+      }
+    });
+    notif.show();
+  } catch {}
 });

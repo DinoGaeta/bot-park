@@ -306,6 +306,7 @@ export default function VoiceCallModal({
           .replace(/<<<SEND_TO_BOT:[\s\S]*?>>>/g, '')
           .replace(/<<<WRITE_FILE:[\s\S]*?>>>/g, '')
           .replace(/<<<REMEMBER:[\s\S]*?>>>/g, '')
+          .replace(/<<<SEND_TO_ANTIGRAVITY:[\s\S]*?>>>/g, '')
           .trim();
 
         const speechToPlay = cleanSpokenReply || (isHangUp ? 'A presto Dion, ci sentiamo dopo!' : 'Ho capito.');
